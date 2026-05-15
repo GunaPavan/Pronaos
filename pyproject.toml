@@ -116,3 +116,12 @@ source = ["src/pronaos"]
 show_missing = true
 skip_covered = true
 fail_under = 70
+
+[tool.bandit]
+# Security static-analysis config. CI runs `bandit -c pyproject.toml -r src -ll`
+# (medium+ severity only). Tests are excluded because they intentionally use
+# insecure-looking patterns (hardcoded test keys, asserts, etc.).
+exclude_dirs = ["tests", "migrations", ".venv"]
+skips = [
+    "B104",  # hardcoded_bind_all_interfaces — server intentionally binds 0.0.0.0
+]
