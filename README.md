@@ -1,10 +1,10 @@
 # Pronaos
 
-> Enterprise LLM gateway with first-class observability, cost control, multi-tenancy, and agent-native tracing.
+> Self-hosted LLM gateway. Unified OpenAI-compatible API for 12+ providers, multi-tenant auth, automatic failover, OpenTelemetry tracing.
 
-Pronaos sits between your applications and every LLM provider (OpenAI, Anthropic, Bedrock, Gemini, Groq, Mistral, local Ollama, and any OpenAI-compatible endpoint) and gives you a single, governed, observable control plane for all AI traffic.
+Pronaos sits between your applications and every supported LLM provider, giving you one governed entry point for every AI call. Today it routes across **12+ providers** — Anthropic (native adapter) plus Groq, OpenAI, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, and Ollama (local) via a single OpenAI-compatible adapter — behind one OpenAI-shape API, with multi-tenant authentication and automatic failover on retryable errors.
 
-It is designed to be the **production spine** that enterprise AI teams silently need but rarely build well: unified API, per-tenant cost and quota management, semantic caching, automatic provider failover, PII redaction, prompt-injection defense, SOC2-grade audit logs, OpenTelemetry tracing end-to-end, and an evaluation harness that can gate model or prompt changes in CI.
+**The goal:** become the spine production AI teams need — unified API, per-tenant cost and quota management, semantic caching, PII redaction, prompt-injection defense, hash-chained audit logs, end-to-end OpenTelemetry, and CI-gated evaluation. Some of this ships today; the rest is on the [roadmap](ROADMAP.md).
 
 ---
 
@@ -19,27 +19,31 @@ A 500-person company using LLMs today typically has:
 - No defensible audit trail when legal or compliance ask what the AI said to a customer
 - No way to A/B test model or prompt changes with real traffic
 
-Pronaos collapses all of that into one governed hop.
+Pronaos is being built to collapse all of that into one governed hop.
 
 ---
 
 ## Feature highlights
 
-| Area                    | Capability                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| Universal API           | OpenAI-compatible `/v1/chat/completions`, `/v1/embeddings`, streaming SSE      |
-| Provider support        | OpenAI, Anthropic, Bedrock, Gemini, Groq, Mistral, DeepSeek, Ollama, custom    |
-| Cost & FinOps           | Per-tenant, per-team, per-key budgets with hard and soft limits, chargeback   |
-| Semantic caching        | Embedding-based cache with tenant isolation and configurable TTLs              |
-| Automatic failover      | Provider outage? Transparent fallback in < 200 ms                              |
-| PII redaction           | Inline strip of SSNs, cards, emails, custom patterns before egress             |
-| Prompt-injection defense| Layered classifier + policy engine to detect and block adversarial prompts     |
-| Observability           | OpenTelemetry traces, Prometheus metrics, structured logs — end-to-end         |
-| Audit log               | Append-only, hash-chained, compliance-ready record of every call               |
-| Auth & RBAC             | OIDC/SSO, per-team roles, scoped API keys                                      |
-| Multi-tenancy           | Tenant isolation across data, cache, quotas, and observability                 |
-| Evaluation harness      | Prompt/model regression tests, LLM-as-judge, CI-gated rollouts                 |
-| Agent-native tracing    | Full run trees for agent workflows, not just single-shot completions           |
+| Area                     | Capability                                                                     | Status        |
+| ------------------------ | ------------------------------------------------------------------------------ | ------------- |
+| Universal API            | OpenAI-compatible `/v1/chat/completions` with streaming SSE                    | ✅ shipped    |
+| Provider support         | 12+ providers via native Anthropic + generic OpenAI-compat adapter             | ✅ shipped    |
+| Routing & failover       | Prefix-based provider selection; automatic retry across configured chain       | ✅ shipped    |
+| Multi-tenancy            | Tenants, teams, scoped API keys with argon2 hashing                            | ✅ shipped    |
+| Admin CLI                | Tenant / team / key lifecycle via `pronaos-cli`                                | ✅ shipped    |
+| Structured logging       | `request_id` / `tenant_id` / `team_id` / `key_id` bound automatically          | ✅ shipped    |
+| OpenTelemetry            | Instrumentation wired across FastAPI, httpx, SQLAlchemy                        | ✅ shipped    |
+| Persistence              | SQLAlchemy + Alembic; SQLite (dev) and Postgres (prod) from the same code      | ✅ shipped    |
+| Quotas & rate limits     | Per-key RPS, per-team token / cost budgets                                     | 🔜 roadmap    |
+| Cost accounting & FinOps | Per-tenant chargeback, Grafana dashboards                                      | 🔜 roadmap    |
+| Audit log                | Append-only, hash-chained, tamper-evident record of every call                 | 🔜 roadmap    |
+| Semantic caching         | Embedding-based cache with tenant isolation and configurable TTLs              | 🔜 roadmap    |
+| Guardrails               | PII redaction, prompt-injection defense, policy engine                         | 🔜 roadmap    |
+| Evaluation harness       | Prompt / model regression tests, LLM-as-judge, CI-gated rollouts               | 🔜 roadmap    |
+| Admin UI                 | Next.js dashboard for tenants, keys, usage, traces                             | 🔜 roadmap    |
+| OIDC / SSO               | Keycloak / Auth0 / Azure AD for human and admin access                         | 🔜 roadmap    |
+| Deploy                   | Helm chart + Terraform module for one-command production install               | 🔜 roadmap    |
 
 ---
 
@@ -92,24 +96,32 @@ curl -s http://localhost:8080/healthz | jq
 
 ## Project status
 
-This project is in **week 0 — scaffold only**. See [`ROADMAP.md`](ROADMAP.md) for the 12-week plan.
+**In active development** — currently building out provider integrations and admin UI. See [`ROADMAP.md`](ROADMAP.md) for the full plan and [`PLAN.md`](PLAN.md) for the phase-by-phase execution checklist.
 
 What works today:
 
-- FastAPI skeleton with `/healthz` and `/readyz`
-- Structured logging with `structlog`
-- OpenTelemetry instrumentation wired up
-- Local development stack via `docker-compose`
-- CI pipeline: lint, type-check, tests, container build, security scans
-- Repository hygiene: pre-commit, editorconfig, dependabot, conventional commits
+- **Unified OpenAI-compatible API** (`/v1/chat/completions`, streaming SSE)
+- **12+ provider routing** via one generic OpenAI-compat adapter + native Anthropic adapter: Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama (local)
+- **Automatic failover** across a configurable provider chain on retryable errors
+- **Multi-tenant auth**: tenants, teams, scoped API keys with argon2 hashing
+- **Admin CLI** (`pronaos-cli`) for tenant / team / key lifecycle
+- **Alembic migrations** working against SQLite (dev) and Postgres (prod) from the same code
+- **Request-scoped structured logging** with `request_id`, `tenant_id`, `team_id`, `key_id` bound automatically
+- **OpenTelemetry instrumentation** wired across FastAPI, httpx, SQLAlchemy
+- **80+ unit tests** + live integration test against real Groq
+- **CI pipeline**: ruff strict, mypy strict, pytest with coverage gate, Docker build, Trivy + gitleaks
+- **Repository hygiene**: pre-commit hooks, editorconfig, dependabot, conventional commits
 
-What is stubbed but not yet implemented:
+On the roadmap:
 
-- Provider implementations (interface defined, only a mock provider wired up)
-- Semantic cache (schema in place, logic pending)
-- Guardrails (PII regex scaffold only)
-- Audit log writer (interface defined)
-- Admin UI
+- **Quotas & rate limits** — per-key RPS, per-team token / cost budgets (in-memory + Redis backends)
+- **Cost accounting & FinOps dashboards** — Grafana, per-tenant chargeback
+- **Audit log** — append-only, hash-chained, tamper-evident
+- **Semantic cache** — embedding-based, tenant-isolated
+- **Guardrails** — PII redaction, prompt-injection defense, policy engine
+- **Evaluation harness** — LLM-as-judge, CI-gated prompt/model regressions
+- **Admin UI** — Next.js dashboard for tenants, keys, usage, traces
+- **Helm chart + Terraform module** — one-command deploy
 
 ---
 

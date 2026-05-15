@@ -1,0 +1,20 @@
+# Force LF line endings for all text files in the repo, regardless of OS.
+# Windows working copies will still see CRLF on checkout (handled by Git).
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF (cmd.exe and PowerShell expect it).
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Treat known binaries as binary (no line-ending munging).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.db    binary
+*.pyc   binary
