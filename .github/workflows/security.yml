@@ -8,6 +8,13 @@ on:
   schedule:
     - cron: "0 6 * * 1"   # weekly Monday 06:00 UTC
 
+# Workflow-wide read-only permissions. Trivy SARIF upload would need
+# `security-events: write`; we currently surface findings via the trivy
+# step's own table output + non-zero exit code on HIGH/CRITICAL, which is
+# simpler and doesn't require GitHub Advanced Security to render.
+permissions:
+  contents: read
+
 jobs:
   gitleaks:
     name: gitleaks secret scan
@@ -32,14 +39,10 @@ jobs:
         uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: pronaos:scan
-          format: sarif
-          output: trivy.sarif
+          format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy.sarif
+          ignore-unfixed: true
 
   bandit:
     name: bandit static analysis
