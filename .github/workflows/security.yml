@@ -36,7 +36,7 @@ jobs:
       - name: Build image for scan
         run: docker build -t pronaos:scan .
       - name: Trivy
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: pronaos:scan
           format: table
