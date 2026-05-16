@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -30,6 +30,24 @@ def _new_id() -> str:
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def next_period_reset(now: datetime) -> datetime:
+    """Return the first day of the month *following* ``now``, at 00:00 UTC.
+
+    Used as the default value for ``Team.period_resets_at``. Calendar-month
+    rollover is deliberate over "rolling 30-day" because it aligns with the
+    way humans (and most billing systems) reason about monthly limits.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    year, month = now.year, now.month
+    if month == 12:
+        year += 1
+        month = 1
+    else:
+        month += 1
+    return datetime(year, month, 1, 0, 0, 0, tzinfo=UTC)
 
 
 # --------------------------------------------------------------------------- #
@@ -66,6 +84,24 @@ class Team(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    # ---- Quota fields (Phase 4) ----
+    # NULL means "unlimited" — admins must explicitly set a budget. Avoids
+    # accidentally denying every request the moment a team is created.
+    monthly_token_budget: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, default=None
+    )
+    # Running counter of tokens consumed in the current billing period.
+    # Atomically incremented by QuotaTracker after each successful provider call.
+    current_period_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # When current_period_tokens auto-resets. Calendar-month UTC: first day
+    # of the next month at 00:00 UTC. QuotaTracker handles the rollover on
+    # the first request past this timestamp.
+    period_resets_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: next_period_reset(_utcnow()),
     )
 
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="teams")
@@ -111,6 +147,11 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    # ---- Quota field (Phase 4) ----
+    # Per-key requests-per-second cap; NULL means "unlimited." Stored as
+    # whole RPS (Integer) because token-bucket math uses this value as the
+    # bucket's burst and as the refill rate (1 r/s ↔ burst 1, refill 1/s).
+    rps_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     team: Mapped[Team] = relationship("Team", back_populates="api_keys")
 

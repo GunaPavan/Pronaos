@@ -23,10 +23,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pronaos.auth.api_keys import Principal
-from pronaos.auth.deps import require_scope
+from pronaos.auth.deps import enforce_quotas, get_db, get_quota_tracker
 from pronaos.core.failover import execute_with_failover
+from pronaos.core.quota import QuotaTracker
 from pronaos.core.router import Router
 from pronaos.logging import get_logger
 from pronaos.providers.base import ChatCompletionChunk, Provider
@@ -85,7 +87,9 @@ def get_router(request: Request) -> Router:
 async def chat_completions(
     body: ChatCompletionBody,
     route: Annotated[Router, Depends(get_router)],
-    principal: Annotated[Principal, Depends(require_scope("chat:write"))],
+    principal: Annotated[Principal, Depends(enforce_quotas("chat:write"))],
+    quota: Annotated[QuotaTracker, Depends(get_quota_tracker)],
+    session: Annotated[AsyncSession, Depends(get_db)],
 ) -> Any:
     prov_req = ProviderRequest(
         model=body.model,
@@ -107,8 +111,8 @@ async def chat_completions(
     )
 
     if body.stream:
-        return _handle_streaming(stream, provider, body.model)
-    return await _handle_non_streaming(stream, provider, body.model)
+        return _handle_streaming(stream, provider, body.model, principal, quota, session)
+    return await _handle_non_streaming(stream, provider, body.model, principal, quota, session)
 
 
 # --------------------------------------------------------------------------- #
@@ -117,7 +121,12 @@ async def chat_completions(
 
 
 async def _handle_non_streaming(
-    stream: AsyncIterator[ChatCompletionChunk], provider: Provider, model: str
+    stream: AsyncIterator[ChatCompletionChunk],
+    provider: Provider,
+    model: str,
+    principal: Principal,
+    quota: QuotaTracker,
+    session: AsyncSession,
 ) -> dict[str, Any]:
     chunk: ChatCompletionChunk | None = None
     async for c in stream:
@@ -126,6 +135,15 @@ async def _handle_non_streaming(
 
     if chunk is None:
         raise HTTPException(status_code=502, detail="provider produced no response")
+
+    prompt_tokens = chunk.prompt_tokens or 0
+    completion_tokens = chunk.completion_tokens or 0
+    total_tokens = prompt_tokens + completion_tokens
+
+    # Record usage *after* a successful provider call. Failure here is logged
+    # but never raises — the response is already constructed and we don't
+    # want to 5xx the client over a metrics gap.
+    await quota.record_usage(session, principal.team_id, total_tokens)
 
     return {
         "id": _chat_id(),
@@ -139,14 +157,10 @@ async def _handle_non_streaming(
                 "finish_reason": chunk.finish_reason or "stop",
             }
         ],
-        "usage": _usage(chunk.prompt_tokens or 0, chunk.completion_tokens or 0),
+        "usage": _usage(prompt_tokens, completion_tokens),
         "pronaos": {
             "provider": provider.name,
-            "cost_hcents": provider.cost_cents(
-                chunk.prompt_tokens or 0,
-                chunk.completion_tokens or 0,
-                model,
-            ),
+            "cost_hcents": provider.cost_cents(prompt_tokens, completion_tokens, model),
         },
     }
 
@@ -160,12 +174,22 @@ def _handle_streaming(
     provider_stream: AsyncIterator[ChatCompletionChunk],
     provider: Provider,
     model: str,
+    principal: Principal,
+    quota: QuotaTracker,
+    session: AsyncSession,
 ) -> StreamingResponse:
     # The stream has already been resolved by the failover executor — any
     # construction-time error was surfaced there and converted to a JSON
     # response by the global error handler. From here on, errors are
     # mid-stream and can only be logged.
-    generator = _sse_openai_chunks(provider_stream, provider=provider, model=model)
+    generator = _sse_openai_chunks(
+        provider_stream,
+        provider=provider,
+        model=model,
+        principal=principal,
+        quota=quota,
+        session=session,
+    )
     return StreamingResponse(
         generator,
         media_type="text/event-stream",
@@ -178,6 +202,9 @@ async def _sse_openai_chunks(
     *,
     provider: Provider,
     model: str,
+    principal: Principal,
+    quota: QuotaTracker,
+    session: AsyncSession,
 ) -> AsyncIterator[str]:
     request_id = _chat_id()
     created = int(time.time())
@@ -226,6 +253,9 @@ async def _sse_openai_chunks(
         # event so clients can distinguish a clean finish from a torn stream.
         log.error("stream.error", error=str(e), provider=provider.name, model=model)
         finish_reason = finish_reason or "error"
+
+    # Record usage post-stream (best-effort; failures are logged, not raised).
+    await quota.record_usage(session, principal.team_id, prompt_tokens + completion_tokens)
 
     # Final chunk: finish reason + usage. The ``usage`` field is an additive
     # extension (OpenAI emits it only when stream_options.include_usage=True);

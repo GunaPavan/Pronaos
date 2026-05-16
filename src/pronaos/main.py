@@ -20,6 +20,8 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pronaos import __version__
 from pronaos.api.v1 import router as v1_router
 from pronaos.config import get_settings
+from pronaos.core.quota import QuotaTracker
+from pronaos.core.ratelimit import make_rate_limiter
 from pronaos.core.router import Router
 from pronaos.db.session import create_engine, create_sessionmaker
 from pronaos.errors import install_error_handlers
@@ -51,16 +53,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # prefix-accessible. A later phase may add per-tenant defaults.
     app.state.router = Router(registry, default_provider=None)
 
+    # Phase 4 quota infrastructure. The rate limiter is in-memory by default
+    # and switches to Redis when ``PRONAOS_REDIS_URL`` is set. The quota
+    # tracker is stateless — one instance per process.
+    rate_limiter = make_rate_limiter(redis_url=settings.redis_url or None)
+    app.state.rate_limiter = rate_limiter
+    app.state.quota_tracker = QuotaTracker()
+
     log.info(
         "pronaos.startup",
         version=__version__,
         env=settings.env.value,
         providers=registry.available_keys(),
         database=_safe_db_name(settings.database_url),
+        rate_limiter=type(rate_limiter).__name__,
     )
     try:
         yield
     finally:
+        await rate_limiter.aclose()
         await registry.aclose()
         await engine.dispose()
         log.info("pronaos.shutdown")

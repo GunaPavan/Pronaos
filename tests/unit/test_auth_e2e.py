@@ -115,6 +115,9 @@ async def test_full_flow_migration_to_authed_request(
         await session.commit()
 
     # ---- 3) Build an app with this DB + mocked Groq upstream -------------
+    from pronaos.core.quota import QuotaTracker
+    from pronaos.core.ratelimit import InMemoryRateLimiter
+
     app = create_app()
     app.state.db_engine = engine
     app.state.db_sessionmaker = sm
@@ -122,6 +125,8 @@ async def test_full_flow_migration_to_authed_request(
     registry = ProviderRegistry(settings)
     app.state.provider_registry = registry
     app.state.router = Router(registry, default_provider=None)
+    app.state.rate_limiter = InMemoryRateLimiter()
+    app.state.quota_tracker = QuotaTracker()
 
     respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_ok_body()))
 

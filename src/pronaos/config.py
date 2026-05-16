@@ -55,7 +55,10 @@ class Settings(BaseSettings):
     # a Postgres URL such as:
     #   postgresql+asyncpg://pronaos:pronaos@postgres:5432/pronaos
     database_url: str = "sqlite+aiosqlite:///./pronaos.db"
-    redis_url: str = "redis://localhost:6379/0"
+    # ``None`` means in-memory rate limiter (zero-install dev path). Set to
+    # a Redis URL (e.g. ``redis://localhost:6379/0``) in prod to share quota
+    # state across multiple workers.
+    redis_url: str | None = None
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
 

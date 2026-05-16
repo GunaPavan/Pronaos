@@ -32,6 +32,8 @@ from pronaos.auth.api_keys import (  # noqa: E402
     hash_key,
 )
 from pronaos.config import get_settings  # noqa: E402
+from pronaos.core.quota import QuotaTracker  # noqa: E402
+from pronaos.core.ratelimit import InMemoryRateLimiter  # noqa: E402
 from pronaos.core.router import Router  # noqa: E402
 from pronaos.db.models import ApiKey, Base, Team, Tenant  # noqa: E402
 from pronaos.db.session import create_engine, create_sessionmaker  # noqa: E402
@@ -59,6 +61,8 @@ async def client_with_registry(
     registry = ProviderRegistry(settings)
     app.state.provider_registry = registry
     app.state.router = Router(registry, default_provider=None)
+    app.state.rate_limiter = InMemoryRateLimiter()
+    app.state.quota_tracker = QuotaTracker()
 
     transport = httpx.ASGITransport(app=app)
     try:
@@ -147,6 +151,10 @@ async def auth_setup(
     registry = ProviderRegistry(settings)
     app.state.provider_registry = registry
     app.state.router = Router(registry, default_provider=None)
+    # Phase 4 quota stack — in-memory limiter is correct for tests; QuotaTracker
+    # is stateless so one instance is fine across all tests.
+    app.state.rate_limiter = InMemoryRateLimiter()
+    app.state.quota_tracker = QuotaTracker()
 
     transport = httpx.ASGITransport(app=app)
     try:

@@ -58,6 +58,12 @@ class Principal:
     key_id: str
     key_prefix: str
     scopes: frozenset[str]
+    # Phase 4 quota fields surfaced at auth time so the rate-limit gate
+    # below doesn't need a second DB hit. ``rps_limit`` is per-key;
+    # ``monthly_token_budget`` is per-team. The QuotaTracker is
+    # authoritative for the running counter regardless.
+    rps_limit: int | None = None
+    monthly_token_budget: int | None = None
 
     def has_scope(self, required: str) -> bool:
         return required in self.scopes
@@ -147,6 +153,8 @@ async def verify_key(session: AsyncSession, raw_key: str) -> Principal | None:
         key_id=api_key.id,
         key_prefix=api_key.prefix,
         scopes=frozenset(api_key.scope_list()),
+        rps_limit=api_key.rps_limit,
+        monthly_token_budget=team.monthly_token_budget,
     )
 
 

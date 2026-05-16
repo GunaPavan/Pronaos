@@ -247,7 +247,135 @@ def key_list(
                     stmt = stmt.where(ApiKey.team_id == team)
                 for k in (await session.execute(stmt)).scalars().all():
                     status = "revoked" if k.revoked_at else "active"
-                    typer.echo(f"{k.id}\t{k.prefix}\t{k.label or '(no label)'}\t{status}")
+                    rps = f"rps={k.rps_limit}" if k.rps_limit is not None else "rps=unlimited"
+                    typer.echo(f"{k.id}\t{k.prefix}\t{k.label or '(no label)'}\t{status}\t{rps}")
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+@key_app.command("set-rps")
+def key_set_rps(
+    id: str,
+    rps: Annotated[
+        int | None,
+        typer.Option(help="Requests-per-second limit. Omit and pass --unlimited to clear."),
+    ] = None,
+    unlimited: Annotated[
+        bool, typer.Option("--unlimited", help="Clear the per-key RPS limit.")
+    ] = False,
+) -> None:
+    """Set or clear the per-key requests-per-second cap.
+
+    Examples:
+      pronaos-cli key set-rps <id> --rps 10
+      pronaos-cli key set-rps <id> --unlimited
+    """
+    if unlimited and rps is not None:
+        typer.echo("error: pass exactly one of --rps or --unlimited", err=True)
+        raise typer.Exit(code=2)
+    if not unlimited and rps is None:
+        typer.echo("error: must pass --rps N or --unlimited", err=True)
+        raise typer.Exit(code=2)
+    if rps is not None and rps <= 0:
+        typer.echo("error: --rps must be > 0 (use --unlimited to remove the cap)", err=True)
+        raise typer.Exit(code=2)
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                api_key = await session.get(ApiKey, id)
+                if api_key is None:
+                    typer.echo(f"key not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+                api_key.rps_limit = None if unlimited else rps
+                rps_display = "unlimited" if api_key.rps_limit is None else api_key.rps_limit
+                typer.echo(f"ok\t{id}\trps={rps_display}")
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+# --------------------------------------------------------------------------- #
+# team quotas                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@team_app.command("set-budget")
+def team_set_budget(
+    id: str,
+    tokens: Annotated[
+        int | None,
+        typer.Option(help="Monthly token budget. Omit and pass --unlimited to clear."),
+    ] = None,
+    unlimited: Annotated[
+        bool, typer.Option("--unlimited", help="Clear the monthly token budget.")
+    ] = False,
+) -> None:
+    """Set or clear the per-team monthly token budget."""
+    if unlimited and tokens is not None:
+        typer.echo("error: pass exactly one of --tokens or --unlimited", err=True)
+        raise typer.Exit(code=2)
+    if not unlimited and tokens is None:
+        typer.echo("error: must pass --tokens N or --unlimited", err=True)
+        raise typer.Exit(code=2)
+    if tokens is not None and tokens <= 0:
+        typer.echo(
+            "error: --tokens must be > 0 (use --unlimited to remove the budget)",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                team = await session.get(Team, id)
+                if team is None:
+                    typer.echo(f"team not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+                team.monthly_token_budget = None if unlimited else tokens
+                budget_display = (
+                    "unlimited"
+                    if team.monthly_token_budget is None
+                    else f"{team.monthly_token_budget:,}"
+                )
+                typer.echo(f"ok\t{id}\tbudget={budget_display}")
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+@team_app.command("usage")
+def team_usage(id: str) -> None:
+    """Show the team's current-period token consumption and budget."""
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                team = await session.get(Team, id)
+                if team is None:
+                    typer.echo(f"team not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+                budget = team.monthly_token_budget
+                used = team.current_period_tokens
+                resets_at = team.period_resets_at
+                if resets_at.tzinfo is None:
+                    resets_at = resets_at.replace(tzinfo=UTC)
+                budget_display = f"{budget:,}" if budget is not None else "unlimited"
+                pct = f" ({100 * used / budget:.1f}%)" if budget else ""
+                typer.echo(f"team:    {team.name} ({team.id})")
+                typer.echo(f"used:    {used:,} tokens{pct}")
+                typer.echo(f"budget:  {budget_display}")
+                typer.echo(f"resets:  {resets_at.isoformat()}")
         finally:
             await engine.dispose()
 

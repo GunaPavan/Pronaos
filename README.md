@@ -35,7 +35,8 @@ Pronaos is being built to collapse all of that into one governed hop.
 | Structured logging       | `request_id` / `tenant_id` / `team_id` / `key_id` bound automatically          | ✅ shipped    |
 | OpenTelemetry            | Instrumentation wired across FastAPI, httpx, SQLAlchemy                        | ✅ shipped    |
 | Persistence              | SQLAlchemy + Alembic; SQLite (dev) and Postgres (prod) from the same code      | ✅ shipped    |
-| Quotas & rate limits     | Per-key RPS, per-team token / cost budgets                                     | 🔜 roadmap    |
+| Rate limits              | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod), zero-install dev | ✅ shipped    |
+| Token budgets            | Per-team monthly token budget with calendar-month rollover, atomic SQL writes  | ✅ shipped    |
 | Cost accounting & FinOps | Per-tenant chargeback, Grafana dashboards                                      | 🔜 roadmap    |
 | Audit log                | Append-only, hash-chained, tamper-evident record of every call                 | 🔜 roadmap    |
 | Semantic caching         | Embedding-based cache with tenant isolation and configurable TTLs              | 🔜 roadmap    |
@@ -114,7 +115,6 @@ What works today:
 
 On the roadmap:
 
-- **Quotas & rate limits** — per-key RPS, per-team token / cost budgets (in-memory + Redis backends)
 - **Cost accounting & FinOps dashboards** — Grafana, per-tenant chargeback
 - **Audit log** — append-only, hash-chained, tamper-evident
 - **Semantic cache** — embedding-based, tenant-isolated
