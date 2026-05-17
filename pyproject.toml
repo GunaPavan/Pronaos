@@ -42,6 +42,13 @@ dependencies = [
     "opentelemetry-instrumentation-redis>=0.49b0",
     "opentelemetry-exporter-otlp>=1.28",
     "prometheus-client>=0.21",
+    # Phase 7.2 — semantic cache. ``qdrant-client`` is small; ``sentence-
+    # transformers`` pulls in PyTorch (~250 MB CPU wheels) but is the
+    # standard local-embedding choice and worth carrying for a self-
+    # hosted gateway. Import is lazy inside ``SentenceTransformerEmbedder``
+    # so module load stays fast for callers that never touch semantic.
+    "qdrant-client>=1.12",
+    "sentence-transformers>=3.0",
 ]
 
 [project.optional-dependencies]

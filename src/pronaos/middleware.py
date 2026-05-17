@@ -12,6 +12,7 @@ handler-side plumbing.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -19,6 +20,11 @@ import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from pronaos.observability.metrics import (
+    http_request_duration_seconds,
+    http_requests_total,
+)
 
 _HEADER = "x-request-id"
 
@@ -44,3 +50,46 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         response.headers[_HEADER] = request_id
         return response
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Record per-request Prometheus counters/histograms.
+
+    The ``route`` label uses Starlette's matched route template (e.g.
+    ``/v1/admin/usage``) rather than the raw URL path, which would explode
+    cardinality on any endpoint that accepts path parameters. If no route
+    matched (404), the label falls back to ``"unmatched"`` so the metric
+    isn't lost.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        method = request.method
+        start = time.monotonic()
+        # Default to ``unmatched`` so 404s and uncaught exceptions are still
+        # accounted for under a low-cardinality bucket.
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            duration = time.monotonic() - start
+            route = self._route_label(request)
+            http_requests_total.labels(
+                method=method, route=route, status_code=str(status_code)
+            ).inc()
+            http_request_duration_seconds.labels(method=method, route=route).observe(
+                duration
+            )
+
+    @staticmethod
+    def _route_label(request: Request) -> str:
+        # Starlette populates ``request.scope["route"]`` after routing —
+        # ``.path`` is the template like "/v1/chat/completions".
+        route = request.scope.get("route")
+        path: str | None = getattr(route, "path", None)
+        return path or "unmatched"

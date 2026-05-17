@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pronaos.auth.api_keys import Principal, verify_key
 from pronaos.core.quota import QuotaTracker
 from pronaos.core.ratelimit import RateLimiter
+from pronaos.observability.metrics import record_quota_denial
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -148,17 +149,20 @@ def enforce_quotas(
                 refill_per_second=float(principal.rps_limit),
             )
             if not rl_result.allowed:
+                record_quota_denial("rate_limit")
                 raise _rate_limited(
                     retry_after_seconds=rl_result.retry_after_seconds,
                     reason="rate_limit",
                 )
 
-        # ---- Layer 2: per-team token budget -----------------------------
+        # ---- Layer 2: per-team token + cost budgets ---------------------
         budget_result = await tracker.check_budget(session, principal.team_id)
         if not budget_result.allowed:
+            reason = budget_result.reason or "budget_exhausted"
+            record_quota_denial(reason)
             raise _rate_limited(
                 retry_after_seconds=budget_result.retry_after_seconds,
-                reason=budget_result.reason or "budget_exhausted",
+                reason=reason,
             )
 
         return principal

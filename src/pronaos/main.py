@@ -15,10 +15,13 @@ from collections.abc import AsyncIterator
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from pronaos import __version__
 from pronaos.api.v1 import router as v1_router
+from pronaos.cache.factory import make_cache
 from pronaos.config import get_settings
 from pronaos.core.quota import QuotaTracker
 from pronaos.core.ratelimit import make_rate_limiter
@@ -26,7 +29,8 @@ from pronaos.core.router import Router
 from pronaos.db.session import create_engine, create_sessionmaker
 from pronaos.errors import install_error_handlers
 from pronaos.logging import configure_logging, get_logger
-from pronaos.middleware import RequestContextMiddleware
+from pronaos.middleware import MetricsMiddleware, RequestContextMiddleware
+from pronaos.observability.metrics import REGISTRY as METRICS_REGISTRY
 from pronaos.observability.otel import configure_tracing
 from pronaos.providers.registry import ProviderRegistry
 
@@ -60,6 +64,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.rate_limiter = rate_limiter
     app.state.quota_tracker = QuotaTracker()
 
+    # Phase 7 cache. NullCache when Redis isn't configured; layered
+    # (exact + semantic) when both Redis and semantic_cache_enabled=True;
+    # exact-only in between.
+    cache = await make_cache(settings)
+    app.state.cache = cache
+
     log.info(
         "pronaos.startup",
         version=__version__,
@@ -71,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await cache.aclose()
         await rate_limiter.aclose()
         await registry.aclose()
         await engine.dispose()
@@ -105,10 +116,48 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Order matters: the request-context middleware runs INSIDE metrics, so
+    # the latency histogram covers the structlog setup overhead too —
+    # which keeps the metric honest about end-to-end gateway cost.
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(MetricsMiddleware)
 
     install_error_handlers(app)
     app.include_router(v1_router)
+
+    # ---- Prometheus exposition ----
+    # Plain-text Prometheus format on /metrics. Unauthenticated by design —
+    # Prometheus servers don't speak Bearer auth, and the surface area is
+    # already firewalled to the internal observability stack in any real
+    # deployment. The data exposed is aggregate counters, not per-tenant
+    # rows, so there's no PII or cost-breakdown leak.
+    @app.get("/metrics", include_in_schema=False)
+    def metrics() -> Response:  # pragma: no cover — trivial passthrough
+        return Response(
+            content=generate_latest(METRICS_REGISTRY),
+            media_type=CONTENT_TYPE_LATEST,
+        )
+
+    # ---- Root index ----
+    # A bare ``curl http://localhost:8080`` or browser hit lands here.
+    # Returns a small JSON map of the public surface — proof of life
+    # plus a self-describing pointer to docs, health, and metrics so
+    # someone discovering the gateway doesn't have to grep source.
+    @app.get("/", include_in_schema=False)
+    def index() -> dict[str, object]:  # pragma: no cover — static index
+        return {
+            "service": "pronaos",
+            "version": __version__,
+            "endpoints": {
+                "openapi_docs": "/docs",
+                "openapi_redoc": "/redoc",
+                "openapi_schema": "/openapi.json",
+                "health": "/v1/healthz",
+                "chat_completions": "/v1/chat/completions",
+                "admin_usage": "/v1/admin/usage",
+                "prometheus_metrics": "/metrics",
+            },
+        }
 
     # Instrument after routes are registered so all endpoints produce spans.
     if settings.otel_enabled:

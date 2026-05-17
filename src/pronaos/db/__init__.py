@@ -1,6 +1,6 @@
 """Database layer: ORM models, session, migrations."""
 
-from pronaos.db.models import ApiKey, Base, Team, Tenant
+from pronaos.db.models import ApiKey, Base, Team, Tenant, UsageRecord
 from pronaos.db.session import (
     create_engine,
     create_sessionmaker,
@@ -12,6 +12,7 @@ __all__ = [
     "Base",
     "Team",
     "Tenant",
+    "UsageRecord",
     "create_engine",
     "create_sessionmaker",
     "get_session",

@@ -20,7 +20,12 @@ class TestGenerate:
         assert parts[0] == KEY_PREFIX
         assert parts[1] == "live"
         assert parts[2] == prefix
-        assert len(parts[3]) > 0
+        # The body uses token_urlsafe which CAN contain '_', so split("_")[3:]
+        # may have more than one element; assert on their joined length
+        # rather than parts[3] alone (which could be empty when the body
+        # happens to start with '_').
+        body_remainder = "_".join(parts[3:])
+        assert len(body_remainder) > 0
 
     def test_prefix_is_12_hex_chars(self) -> None:
         _, prefix = generate_api_key("live")

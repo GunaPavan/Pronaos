@@ -78,9 +78,14 @@ async def _build_test_app(
     monthly_budget: int | None,
     current_tokens: int = 0,
     period_resets_at: datetime | None = None,
+    monthly_cost_hcents_budget: int | None = None,
+    current_cost_hcents: int = 0,
 ) -> tuple[_Quota, async_sessionmaker]:
     """Stand up an in-memory SQLite + seeded tenant/team/key + FastAPI app
-    with our quota stack. Returns the test client plus IDs."""
+    with our quota stack. Returns the test client plus IDs.
+
+    Cost-budget knobs are off by default so existing tests that only care
+    about token budgets behave exactly as before Phase 5.7."""
     monkeypatch.setenv("PRONAOS_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     get_settings.cache_clear()
@@ -103,6 +108,8 @@ async def _build_test_app(
             name="eng-q",
             monthly_token_budget=monthly_budget,
             current_period_tokens=current_tokens,
+            monthly_cost_hcents_budget=monthly_cost_hcents_budget,
+            current_period_cost_hcents=current_cost_hcents,
         )
         if period_resets_at is not None:
             team.period_resets_at = period_resets_at
@@ -231,7 +238,10 @@ async def test_budget_exhausted_returns_429(monkeypatch: pytest.MonkeyPatch) -> 
         # FastAPI HTTPException.detail is the dict we returned
         detail = err.get("detail") if isinstance(err, dict) else None
         assert isinstance(detail, dict)
-        assert detail["type"] == "monthly_budget_exhausted"
+        # Phase 5.7 made the reason code specific. ``monthly_budget_exhausted``
+        # was renamed to ``monthly_token_budget_exhausted`` so cost-budget
+        # denials can carry their own distinct code.
+        assert detail["type"] == "monthly_token_budget_exhausted"
     finally:
         await q.client.aclose()
 
@@ -302,3 +312,208 @@ async def test_period_rollover_resets_budget(
         team = await session.get(Team, q.team_id)
         assert team is not None
         assert team.current_period_tokens == 4
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5.7 — cost-budget gate                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cost_budget_exhausted_returns_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Team has a $10 (=10,000 hcents) cost budget already fully spent;
+    next call → 429 with the cost-specific reason code so dashboards can
+    tell token-exhaustion apart from cost-exhaustion."""
+    q, _ = await _build_test_app(
+        monkeypatch,
+        rps_limit=None,
+        monthly_budget=None,
+        monthly_cost_hcents_budget=10_000,
+        current_cost_hcents=10_000,
+    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_response()))
+
+    headers = {"Authorization": f"Bearer {q.api_key}"}
+    body = {
+        "model": "groq/llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": "x"}],
+    }
+    try:
+        r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
+        assert r.status_code == 429, r.text
+        detail = r.json().get("detail")
+        assert isinstance(detail, dict)
+        assert detail["type"] == "monthly_cost_budget_exhausted"
+    finally:
+        await q.client.aclose()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cost_counter_increments_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a successful call, current_period_cost_hcents should bump by the
+    provider's computed cost. We don't pin the exact cost (the pricing map
+    can change) — we just assert it's nonzero and strictly greater than the
+    initial seed value.
+
+    Tokens are deliberately large so the cost survives integer division at
+    Groq's tier (5K hcents/Mtok input + 8K/Mtok output → 5K tokens each =
+    25 + 40 = 65 hcents). At 10 tokens it'd round to 0 and the increment
+    would look broken even when it isn't."""
+    q, sm = await _build_test_app(
+        monkeypatch,
+        rps_limit=None,
+        monthly_budget=None,
+        monthly_cost_hcents_budget=1_000_000,  # $100 — plenty of headroom
+        current_cost_hcents=0,
+    )
+    respx.post(GROQ_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response(in_tokens=5_000, out_tokens=5_000))
+    )
+
+    headers = {"Authorization": f"Bearer {q.api_key}"}
+    body = {
+        "model": "groq/llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": "x"}],
+    }
+    try:
+        r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
+        assert r.status_code == 200, r.text
+    finally:
+        await q.client.aclose()
+
+    async with sm() as session:
+        team = await session.get(Team, q.team_id)
+        assert team is not None
+        assert team.current_period_cost_hcents > 0, (
+            "cost counter must increment after a successful call"
+        )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cost_period_rollover_resets_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past period_resets_at + non-zero cost_used → both counters reset on
+    the next call. Token-counter rollover already tested; this confirms the
+    new cost counter rolls in lockstep."""
+    past = datetime.now(tz=UTC) - timedelta(days=1)
+    q, sm = await _build_test_app(
+        monkeypatch,
+        rps_limit=None,
+        monthly_budget=None,
+        period_resets_at=past,
+        monthly_cost_hcents_budget=10_000,
+        current_cost_hcents=9_999,  # would block without rollover
+    )
+    respx.post(GROQ_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response(in_tokens=1, out_tokens=1))
+    )
+
+    headers = {"Authorization": f"Bearer {q.api_key}"}
+    body = {
+        "model": "groq/llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": "x"}],
+    }
+    try:
+        r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
+        # If rollover hadn't fired, the seeded 9,999 hcents would have
+        # triggered the budget-exhausted denial. Receiving 200 proves the
+        # cost counter was zeroed at the boundary.
+        assert r.status_code == 200, r.text
+    finally:
+        await q.client.aclose()
+
+    async with sm() as session:
+        team = await session.get(Team, q.team_id)
+        assert team is not None
+        # After rollover + the single call: counter should reflect ONLY
+        # this call's cost, not the pre-rollover 9,999.
+        assert team.current_period_cost_hcents < 9_999, (
+            "cost counter must reset on rollover"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 6.1 — quota denials show up in Prometheus                             #
+# --------------------------------------------------------------------------- #
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_quota_denial_increments_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 429 from cost-budget exhaustion must bump
+    pronaos_quota_denials_total{reason="monthly_cost_budget_exhausted"} —
+    that's the metric a dashboard needs to alert on 'tenants hitting their
+    cap' without parsing log lines."""
+    from pronaos.observability.metrics import quota_denials_total
+
+    def value(reason: str) -> float:
+        try:
+            return quota_denials_total.labels(reason=reason)._value.get()  # noqa: SLF001
+        except KeyError:
+            return 0.0
+
+    q, _ = await _build_test_app(
+        monkeypatch,
+        rps_limit=None,
+        monthly_budget=None,
+        monthly_cost_hcents_budget=10_000,
+        current_cost_hcents=10_000,
+    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_response()))
+
+    before = value("monthly_cost_budget_exhausted")
+    headers = {"Authorization": f"Bearer {q.api_key}"}
+    body = {
+        "model": "groq/llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": "x"}],
+    }
+    try:
+        r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
+        assert r.status_code == 429
+    finally:
+        await q.client.aclose()
+
+    after = value("monthly_cost_budget_exhausted")
+    assert after - before == pytest.approx(1.0)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cost_denial_supersedes_token_headroom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tokens have plenty of headroom (10,000 budget, 0 used) but cost is
+    exhausted. The combined gate must still deny — cost is checked first
+    precisely so an expensive-provider request can't slip through on
+    cheap-provider token headroom."""
+    q, _ = await _build_test_app(
+        monkeypatch,
+        rps_limit=None,
+        monthly_budget=10_000,
+        current_tokens=0,
+        monthly_cost_hcents_budget=1_000,
+        current_cost_hcents=1_000,
+    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_response()))
+
+    headers = {"Authorization": f"Bearer {q.api_key}"}
+    body = {
+        "model": "groq/llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": "x"}],
+    }
+    try:
+        r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
+        assert r.status_code == 429
+        assert r.json()["detail"]["type"] == "monthly_cost_budget_exhausted"
+    finally:
+        await q.client.aclose()

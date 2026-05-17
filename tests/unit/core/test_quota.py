@@ -92,7 +92,8 @@ class TestCheckBudget:
         async with sessionmaker_() as session:
             r = await tracker.check_budget(session, team_id)
         assert not r.allowed
-        assert r.reason == "monthly_budget_exhausted"
+        # Phase 5.7 split this into per-budget reason codes.
+        assert r.reason == "monthly_token_budget_exhausted"
         assert r.tokens_remaining == 0
 
     @pytest.mark.asyncio
@@ -248,7 +249,15 @@ class TestQuotaResult:
         assert r.tokens_remaining == 42
 
     def test_deny_exhausted(self) -> None:
+        # ``deny_exhausted`` is kept as a back-compat alias for the
+        # token-exhausted variant after the Phase 5.7 reason-code split.
         r = QuotaResult.deny_exhausted(retry_after_seconds=120.0)
         assert not r.allowed
-        assert r.reason == "monthly_budget_exhausted"
+        assert r.reason == "monthly_token_budget_exhausted"
         assert r.retry_after_seconds == 120.0
+
+    def test_deny_cost_exhausted(self) -> None:
+        r = QuotaResult.deny_cost_exhausted(retry_after_seconds=60.0)
+        assert not r.allowed
+        assert r.reason == "monthly_cost_budget_exhausted"
+        assert r.retry_after_seconds == 60.0

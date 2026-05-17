@@ -1,12 +1,17 @@
 apiVersion: 1
 datasources:
   - name: Prometheus
+    # Stable UID — provisioned dashboards reference this. Without a fixed
+    # UID Grafana generates a random one and the dashboards lose their
+    # datasource binding on first load.
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
 
   - name: Tempo
+    uid: tempo
     type: tempo
     access: proxy
     url: http://tempo:3200

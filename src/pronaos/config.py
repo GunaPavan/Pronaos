@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
 
+    # Semantic cache (Phase 7.2). Opt-in because the local embedding model
+    # boots PyTorch (~1-2 s startup, ~250 MB RAM). Production deployments
+    # set this true; CI / dev sessions keep it off unless explicitly tested.
+    semantic_cache_enabled: bool = False
+    # Cosine similarity threshold for an L2 hit. 0.95 = strong paraphrase
+    # match for all-MiniLM-L6-v2. Lower = more hits but more false positives.
+    semantic_cache_threshold: float = 0.95
+
     # Observability
     otel_enabled: bool = True
     otel_exporter_endpoint: str = "http://localhost:4317"

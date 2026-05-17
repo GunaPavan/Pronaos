@@ -95,9 +95,20 @@ class Team(Base):
     # Running counter of tokens consumed in the current billing period.
     # Atomically incremented by QuotaTracker after each successful provider call.
     current_period_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    # When current_period_tokens auto-resets. Calendar-month UTC: first day
+    # ---- Cost budget (Phase 5.7) ----
+    # Parallel to the token budget but denominated in hundredths-of-a-cent
+    # (matches UsageRecord.cost_hcents). NULL means unlimited. Either limit
+    # can deny independently; the stricter one wins.
+    monthly_cost_hcents_budget: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, default=None
+    )
+    current_period_cost_hcents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    # When the period counters auto-reset. Calendar-month UTC: first day
     # of the next month at 00:00 UTC. QuotaTracker handles the rollover on
-    # the first request past this timestamp.
+    # the first request past this timestamp — both token and cost counters
+    # zero together.
     period_resets_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -130,9 +141,10 @@ class ApiKey(Base):
     # argon2-cffi hash of the full key. Never log or expose this.
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     # Space-separated scope tokens. Parsed at runtime; kept flat in DB for
-    # easy grep-ability and trivial migration. Phase 3 recognises:
-    #   - "chat:write" (required to hit /v1/chat/completions)
-    #   - "admin"      (required to hit /v1/admin/*)
+    # easy grep-ability and trivial migration. Currently recognised:
+    #   - "chat:write"   (required to hit /v1/chat/completions)
+    #   - "admin"        (reserved for future tenant-admin endpoints)
+    #   - "admin:usage"  (required to hit /v1/admin/usage — Phase 5.3)
     scopes: Mapped[str] = mapped_column(String(255), nullable=False, default="chat:write")
     # Human-friendly label set at issue time; distinguishes multiple keys
     # for the same team ("deploy-prod", "ci-runner").
@@ -156,6 +168,73 @@ class ApiKey(Base):
     team: Mapped[Team] = relationship("Team", back_populates="api_keys")
 
     __table_args__ = (Index("ix_api_keys_team_id", "team_id"),)
+
+    # ---- Convenience -----------------------------------------------------
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None
+
+    def scope_list(self) -> list[str]:
+        return [s for s in (self.scopes or "").split() if s]
+
+
+# --------------------------------------------------------------------------- #
+# UsageRecord                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+class UsageRecord(Base):
+    """One row per successful chat completion.
+
+    Persists the data needed for FinOps (per-tenant chargeback, cost dashboards)
+    and for operational queries ("which provider failed most this week").
+
+    No foreign keys to ``api_keys`` / ``teams`` / ``tenants`` on purpose — when
+    a tenant is deleted we DO want their usage history preserved (for compliance
+    and finance). Soft FK via the id columns; queries join on demand.
+
+    Indexes are scoped per common query shape:
+    - ``(tenant_id, ts)`` for tenant-wide spend reports
+    - ``(team_id, ts)`` for per-team chargeback (the hot path)
+    """
+
+    __tablename__ = "usage_records"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    # When the call completed (gateway clock; UTC). We use 'completed at' not
+    # 'started at' because the upstream call duration is captured separately
+    # in latency_ms.
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    # Soft references (no FK so usage survives tenant/team/key deletion).
+    tenant_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    team_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    key_id: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    # What was called.
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Tokens and cost. ``cost_hcents`` is hundredths-of-a-cent for sub-cent
+    # precision matching the providers/*.py pricing tables.
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_hcents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Tracing breadcrumb so usage rows can be joined with logs / future spans.
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+
+    # ``success`` for normal completions; future phases may add ``error`` or
+    # ``cache_hit`` (Phase 8 semantic cache).
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="success")
+
+    __table_args__ = (
+        Index("ix_usage_records_team_ts", "team_id", "ts"),
+        Index("ix_usage_records_tenant_ts", "tenant_id", "ts"),
+    )
 
     # ---- Convenience -----------------------------------------------------
 

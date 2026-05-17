@@ -57,3 +57,15 @@ logs/
 *.tfstate
 *.tfstate.backup
 .terraform/
+
+# Secrets / local state
+.demo_api_key
+demo_state.txt
+
+# Local dev databases — never commit. ``pronaos.db`` is the SQLite file
+# the dev workflow uses; production should use Postgres. Test runs create
+# additional ``*.db`` and ``*.db-*`` (WAL/journal) files.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

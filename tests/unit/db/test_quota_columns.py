@@ -137,8 +137,9 @@ async def test_migrations_up_then_down_round_trip(tmp_path: Path, monkeypatch) -
     cfg = Config(str(ini))
     cfg.set_main_option("sqlalchemy.url", db_url)
 
-    # Upgrade to head (applies 0001 + 0002).
-    await asyncio.to_thread(command.upgrade, cfg, "head")
+    # Upgrade to 0002 specifically (not head) so this test stays correct
+    # as future migrations stack on top.
+    await asyncio.to_thread(command.upgrade, cfg, "0002")
 
     engine = create_async_engine(db_url)
     async with engine.connect() as conn:
@@ -155,8 +156,8 @@ async def test_migrations_up_then_down_round_trip(tmp_path: Path, monkeypatch) -
     assert "period_resets_at" in team_cols
     assert "rps_limit" in key_cols
 
-    # Downgrade one step.
-    await asyncio.to_thread(command.downgrade, cfg, "-1")
+    # Downgrade to 0001 — Phase-4 columns must be gone.
+    await asyncio.to_thread(command.downgrade, cfg, "0001")
 
     engine = create_async_engine(db_url)
     async with engine.connect() as conn:
@@ -172,5 +173,85 @@ async def test_migrations_up_then_down_round_trip(tmp_path: Path, monkeypatch) -
     assert "current_period_tokens" not in team_cols_after
     assert "period_resets_at" not in team_cols_after
     assert "rps_limit" not in key_cols_after
+
+    get_settings.cache_clear()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5.7 — cost-budget columns                                              #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_team_cost_budget_defaults_are_unlimited(tmp_path: Path) -> None:
+    """A freshly created Team must default to unlimited cost budget + 0 cost
+    consumption. Same fail-safe posture as the token budget."""
+    db = tmp_path / "test_cost_defaults.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db.as_posix()}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    async with sm() as session:
+        tenant = Tenant(name="acme-cd")
+        session.add(tenant)
+        await session.flush()
+        team = Team(tenant_id=tenant.id, name="eng")
+        session.add(team)
+        await session.commit()
+        await session.refresh(team)
+
+        assert team.monthly_cost_hcents_budget is None, "cost budget must default to unlimited"
+        assert team.current_period_cost_hcents == 0
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migration_0004_round_trip(tmp_path: Path, monkeypatch) -> None:
+    """0003 → 0004 adds the cost-budget columns; 0004 → 0003 removes them.
+    Catches misnamed columns, bad server_defaults, and downgrade bugs."""
+    db = tmp_path / "round_trip_0004.db"
+    db_url = f"sqlite+aiosqlite:///{db.as_posix()}"
+    monkeypatch.setenv("PRONAOS_DATABASE_URL", db_url)
+
+    from pronaos.config import get_settings
+
+    get_settings.cache_clear()
+
+    from alembic import command
+    from alembic.config import Config
+
+    ini = Path(__file__).resolve().parents[3] / "alembic.ini"  # noqa: ASYNC240
+    cfg = Config(str(ini))
+    cfg.set_main_option("sqlalchemy.url", db_url)
+
+    await asyncio.to_thread(command.upgrade, cfg, "0004")
+
+    engine = create_async_engine(db_url)
+    async with engine.connect() as conn:
+        team_cols = await conn.run_sync(
+            lambda c: [col["name"] for col in inspect(c).get_columns("teams")]
+        )
+    await engine.dispose()
+
+    assert "monthly_cost_hcents_budget" in team_cols
+    assert "current_period_cost_hcents" in team_cols
+
+    await asyncio.to_thread(command.downgrade, cfg, "0003")
+
+    engine = create_async_engine(db_url)
+    async with engine.connect() as conn:
+        team_cols_after = await conn.run_sync(
+            lambda c: [col["name"] for col in inspect(c).get_columns("teams")]
+        )
+    await engine.dispose()
+
+    assert "monthly_cost_hcents_budget" not in team_cols_after
+    assert "current_period_cost_hcents" not in team_cols_after
+    # Phase-4 columns must still be present after the 0004 downgrade
+    assert "monthly_token_budget" in team_cols_after
 
     get_settings.cache_clear()
