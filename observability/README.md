@@ -196,8 +196,9 @@ would be the wrong move.
 - *Circuit trips + skipped requests (5m windows)* — timeseries
   showing breaker activity over time
 
-Live demo (~26× speedup on streaming under provider degradation) in
-the top-level README, Empirical claim #6.
+Live demo (**26.7× speedup** on streaming under provider degradation:
+0.33 s skipped-call vs 8.8 s connect-refused timeout) in the
+top-level README, Empirical claim #6.
 
 ## Streaming cancellation (Phase 18)
 

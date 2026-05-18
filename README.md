@@ -17,7 +17,7 @@ Seven empirical claims, each backed by a script or a live demo you can reproduce
 | 3 | **Redaction breaks the model when PII is topically relevant** — and per-tenant policy fixes it | tcp_vs_udp: 1.00 → **0.00** under redaction; → **1.00** after `--disable pii.ipv4` | `python scripts/eval_guardrail_quality.py` |
 | 4 | **9.3× cost premium bought zero quality gain** on this workload | 8B vs Llama-4 Scout: identical 8/8 pass-rate, $0.000050 vs $0.000463 per call | `python scripts/eval_cost_quality.py` |
 | 5 | **Tamper detection works on the live audit log** | `audit verify` exits 0 on intact chain, exits 1 with exact byte diff on tamper | `pronaos-cli audit verify --tenant <id>` |
-| 6 | **Circuit breaker routes around a degraded provider** | Streaming call against an OPEN breaker: **0.33s vs 8.8s** when CLOSED — ~26× speedup, zero upstream tokens consumed | [Live demo recipe](#empirical-claim-6--circuit-breaker-routes-around-a-degraded-provider) |
+| 6 | **Circuit breaker routes around a degraded provider** | Streaming call against an OPEN breaker: **0.33 s vs 8.8 s** when CLOSED — **26.7× speedup**, zero upstream tokens consumed | [Live demo recipe](#empirical-claim-6--circuit-breaker-routes-around-a-degraded-provider) |
 | 7 | **Pre-flight token estimator saves the upstream call** on requests that would deny anyway | 1011-token estimate vs 50-token budget → **HTTP 429 with `X-Pronaos-Preflight-Estimate: 1011` header BEFORE Groq is touched** | [Live demo recipe](#empirical-claim-7--pre-flight-token-estimator-saves-the-upstream-call) |
 
 The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most "I built an LLM gateway" portfolios stop at *"the cache exists."* This one closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
@@ -48,7 +48,7 @@ max |Δ|: 0.0000      cases over ε: 0 / 8
 ✅ CLAIM HOLDS: cache preserves quality.
 ```
 
-The 21.8s → 11.8s wall-clock drop (~46% faster) is the cache short-circuiting every provider call. Quality preserved exactly; latency drops measurably.
+The 21.8 s → 11.8 s wall-clock drop (**45.9% faster**) is the cache short-circuiting every provider call. Quality preserved exactly; latency drops measurably.
 
 ### Empirical claim #2 — semantic cache trades nothing for paraphrase hits
 
@@ -112,7 +112,7 @@ After applying that policy and re-running the same experiment:
 | `groq/llama-3.1-8b-instant` | 1.000 | 8/8 | $0.000050 | $0.000050 |
 | `groq/meta-llama/llama-4-scout-17b-16e-instruct` | 1.000 | 8/8 | $0.000463 | $0.000463 |
 
-Llama 4 Scout costs **9.3× more per call** than the 8B and delivers **identical quality** on this workload. Defaulting to the "better" model wastes ~89% of the spend with no quality gain. On a workload of one million calls, that's **$413 in pure overpayment.**
+Llama 4 Scout costs **9.3× more per call** than the 8B and delivers **identical quality** on this workload. Defaulting to the "better" model wastes **89.2% of the spend** with no quality gain. On a workload of one million calls, that's **$413 in pure overpayment.**
 
 Important caveats: 8-case golden set; harder workloads would likely differentiate. The point isn't *"always pick 8B"* — it's *"measure before you default."*
 
@@ -156,8 +156,8 @@ Live recipe (full walkthrough in [`PLAN.md`](PLAN.md) Phase 15):
 ```bash
 # 1. Temporarily redirect Groq to a refused-connection black hole
 #    (one-line catalog edit), restart the gateway.
-# 2. Hammer the gateway with 5 calls to a groq/* model — each fails after ~9s
-#    waiting for the connect timeout.
+# 2. Hammer the gateway with 5 calls to a groq/* model — each fails after 8.8 s
+#    waiting for the connect-refused timeout.
 # 3. The 5th call trips the breaker (CLOSED→OPEN). curl /metrics:
 #       pronaos_circuit_state{provider="groq"} 2.0          # OPEN
 #       pronaos_circuit_trips_total{provider="groq"} 1.0    # one trip event
@@ -170,7 +170,7 @@ Live recipe (full walkthrough in [`PLAN.md`](PLAN.md) Phase 15):
 #    timer (trip_count = 2). If healthy → back to CLOSED.
 ```
 
-The ~26× speedup is the breaker doing its actual job: trading a ~9 s connect timeout for a 0.33 s skipped-call decision, repeated across every request the breaker covers. On a busy upstream with intermittent outages this is what keeps p99 latency from collapsing under transient provider degradation. New Grafana panels visualise state-per-provider plus trips/skipped over time.
+The **26.7× speedup** is the breaker doing its actual job: trading an 8.8 s connect-refused timeout for a 0.33 s skipped-call decision, repeated across every request the breaker covers. On a busy upstream with intermittent outages this is what keeps p99 latency from collapsing under transient provider degradation. New Grafana panels visualise state-per-provider plus trips/skipped over time.
 
 ### Empirical claim #7 — pre-flight token estimator saves the upstream call
 
@@ -205,7 +205,7 @@ pronaos-cli team usage <team-id>
 #   pronaos_preflight_denials_total{reason="monthly_token_budget_exhausted"} 1.0
 ```
 
-Same prompt with `max_tokens: 5` (small enough to fit the budget) returns 200 OK and `tokens used: 41`. The estimator is calibrated within ±15% of Groq's actual tokenizer on representative English samples — close enough to be a budget guardrail, honest enough not to claim it's a billing oracle.
+Same prompt with `max_tokens: 5` (well inside the 50-token budget) returns 200 OK and `tokens used: 41`. The estimator is calibrated within **±15%** of Groq's actual tokenizer on representative English samples — the right tolerance for a budget guardrail. It does NOT claim billing-oracle precision; the post-flight quota check still enforces the real cost from the provider's returned `usage` block.
 
 ### Operational view + Swagger
 

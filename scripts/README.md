@@ -278,7 +278,7 @@ groq/meta-llama/llama-4-scout-17b-16e-instruct  1.000   8/8   $0.000463/call  $0
 
 **Llama-4 Scout costs 9.3× more per call than the 8B and delivers
 identical 8/8 quality on this workload.** Defaulting to the bigger
-model would waste ~89% of the spend with no measurable quality gain.
+model wastes **89.2% of the spend** with no measurable quality gain.
 
 ### Run it
 
