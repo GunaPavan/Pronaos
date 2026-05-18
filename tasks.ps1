@@ -57,7 +57,7 @@ function PrintHelp {
     Write-Host "    clean              Remove caches and build artifacts"
     Write-Host ""
     Write-Host "  End-to-end demo (proves auth + quotas work against real Groq):"
-    Write-Host "    demo               Run the recruiter-facing E2E demo"
+    Write-Host "    demo               Run the end-to-end demonstration"
     Write-Host ""
 }
 

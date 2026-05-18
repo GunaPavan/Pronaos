@@ -409,7 +409,7 @@ async def chat_completions(
     }
 
     # Time from BEFORE failover starts so the histogram includes any retry
-    # cost from the failover layer — recruiters / SREs want to see the
+    # cost from the failover layer — SREs and operators want to see the
     # whole upstream latency story, not just the winning provider's wire time.
     provider_call_start = time.monotonic()
     try:

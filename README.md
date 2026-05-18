@@ -20,7 +20,7 @@ Seven empirical claims, each backed by a script or a live demo you can reproduce
 | 6 | **Circuit breaker routes around a degraded provider** | Streaming call against an OPEN breaker: **0.33 s vs 8.8 s** when CLOSED — **26.7× speedup**, zero upstream tokens consumed | [Live demo recipe](#empirical-claim-6--circuit-breaker-routes-around-a-degraded-provider) |
 | 7 | **Pre-flight token estimator saves the upstream call** on requests that would deny anyway | 1011-token estimate vs 50-token budget → **HTTP 429 with `X-Pronaos-Preflight-Estimate: 1011` header BEFORE Groq is touched** | [Live demo recipe](#empirical-claim-7--pre-flight-token-estimator-saves-the-upstream-call) |
 
-The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most "I built an LLM gateway" portfolios stop at *"the cache exists."* This one closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
+The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most LLM-gateway documentation stops at *"the cache exists."* Pronaos closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
 
 ---
 

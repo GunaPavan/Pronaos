@@ -123,10 +123,10 @@ class InMemoryRateLimiter:
     can't double-spend the bucket. Different scopes never contend with each
     other — each gets its own lock.
 
-    Memory is bounded only by the number of distinct scopes seen; for a
-    portfolio demo (and most single-tenant deployments) this is fine. A
-    future LRU eviction policy can be added if scope cardinality ever grows
-    without bound.
+    Memory is bounded only by the number of distinct scopes seen; for
+    single-tenant deployments and the early multi-tenant range this is
+    fine. A future LRU eviction policy can be added if scope cardinality
+    ever grows without bound.
     """
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:

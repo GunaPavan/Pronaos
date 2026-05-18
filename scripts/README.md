@@ -109,7 +109,7 @@ up while the demo runs.
 
 ## `eval_cache_quality.py` — cache faithfulness experiment
 
-The most-bothered-with question a recruiter asks of a cache layer:
+The hardest question to answer about any cache layer:
 *"How do you know the cache doesn't corrupt responses?"*
 
 This script answers it empirically:
@@ -308,9 +308,9 @@ python scripts/eval_cost_quality.py --api-key pn_live_… \
 A 60-line FastAPI app that listens on `127.0.0.1:9090/webhook`,
 verifies the `X-Pronaos-Signature` HMAC against a shared secret, and
 prints every received POST to stdout. Useful for live-verifying that
-the gateway is actually firing webhooks during a demo (recruiter
-asks "how do I know it works?" — point this thing at the gateway
-and trip a circuit).
+the gateway is actually firing webhooks end-to-end — point this
+receiver at the gateway and trip a circuit to confirm signed events
+arrive at the configured URL.
 
 ### Run it
 

@@ -53,8 +53,8 @@ class ProviderRegistry:
     def available_keys(self) -> list[str]:
         """Return keys of providers that *could* be built given current config.
 
-        Useful for startup logging and admin-endpoint diagnostics: recruiters
-        reading the logs will see exactly which of the 12+ catalog entries
+        Useful for startup logging and admin-endpoint diagnostics: operators
+        reading the logs will see exactly which of the 12 catalog entries
         are live in this environment.
         """
         keys: list[str] = []

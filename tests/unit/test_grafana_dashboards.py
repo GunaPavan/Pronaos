@@ -117,7 +117,7 @@ def _all_metric_names() -> set[str]:
 def test_dashboard_queries_reference_only_known_metrics(path: Path) -> None:
     """Every ``pronaos_*`` symbol that appears in a panel query must be
     a metric we actually register. Otherwise dashboards ship empty and
-    "it's broken" is the recruiter's first reaction."""
+    "it's broken" is the operator's first reaction."""
     import re
 
     data = json.loads(path.read_text(encoding="utf-8"))

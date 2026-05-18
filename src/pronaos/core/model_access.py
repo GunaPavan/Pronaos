@@ -14,7 +14,7 @@ We use the stdlib ``fnmatch`` semantics, which match shell globs:
 - ``[seq]`` matches any character in the sequence
 - ``[!seq]`` matches any character NOT in the sequence
 
-Examples (the ones recruiters and operators actually want):
+Examples (the ones operators actually want):
 
 - ``"groq/*"``                       — every model under the Groq prefix
 - ``"anthropic/claude-opus-*"``      — only Opus models on Anthropic

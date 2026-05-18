@@ -8,7 +8,7 @@ action was taken, and what the client got back. The story this tells in
 the original sensitive strings cross either boundary**.
 
 Run alongside `scripts/demo_cache.py` for the full "see it running"
-recruiter pitch.
+end-to-end demonstration.
 
 Usage
 -----
