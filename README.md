@@ -1,14 +1,14 @@
 # Pronaos
 
-> Self-hosted LLM gateway with **five empirical claims about its own behavior**, every one verified by a reproducible script.
+> Self-hosted LLM gateway with **seven empirical claims about its own behavior**, every one verified by a reproducible script or live demo.
 
-Pronaos sits between your applications and 12+ LLM providers (Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, and a hash-chained audit log. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
+Pronaos sits between your applications and 12+ LLM providers (Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, hash-chained audit, tool calling (full OpenAI ↔ Anthropic translation), per-provider circuit breakers, signed outbound webhooks, and a pre-flight cost gate. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
 
 ---
 
 ## What this gateway can prove about itself
 
-Five empirical claims, each backed by a script you can run against the live gateway:
+Seven empirical claims, each backed by a script or a live demo you can reproduce against the running gateway:
 
 | # | Claim | Headline | Reproduce |
 | --- | --- | ---: | --- |
@@ -17,6 +17,8 @@ Five empirical claims, each backed by a script you can run against the live gate
 | 3 | **Redaction breaks the model when PII is topically relevant** — and per-tenant policy fixes it | tcp_vs_udp: 1.00 → **0.00** under redaction; → **1.00** after `--disable pii.ipv4` | `python scripts/eval_guardrail_quality.py` |
 | 4 | **9.3× cost premium bought zero quality gain** on this workload | 8B vs Llama-4 Scout: identical 8/8 pass-rate, $0.000050 vs $0.000463 per call | `python scripts/eval_cost_quality.py` |
 | 5 | **Tamper detection works on the live audit log** | `audit verify` exits 0 on intact chain, exits 1 with exact byte diff on tamper | `pronaos-cli audit verify --tenant <id>` |
+| 6 | **Circuit breaker routes around a degraded provider** | Streaming call against an OPEN breaker: **0.33s vs 8.8s** when CLOSED — ~26× speedup, zero upstream tokens consumed | [Live demo recipe](#empirical-claim-6--circuit-breaker-routes-around-a-degraded-provider) |
+| 7 | **Pre-flight token estimator saves the upstream call** on requests that would deny anyway | 1011-token estimate vs 50-token budget → **HTTP 429 with `X-Pronaos-Preflight-Estimate: 1011` header BEFORE Groq is touched** | [Live demo recipe](#empirical-claim-7--pre-flight-token-estimator-saves-the-upstream-call) |
 
 The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most "I built an LLM gateway" portfolios stop at *"the cache exists."* This one closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
 
@@ -145,6 +147,66 @@ The verifier finds the exact row, returns exit code 1, ready to wire into a nigh
 
 This is what auditability looks like when it's real: tamper-evident record, exit-code-aware verifier, AND a test suite that catches the round-trip bugs that would silently invalidate every audit claim.
 
+### Empirical claim #6 — circuit breaker routes around a degraded provider
+
+Every provider has a per-process circuit breaker (`CLOSED` → `OPEN` after 5 consecutive failures → `HALF_OPEN` after 30s → back to `CLOSED` on a successful probe). When `OPEN`, the failover layer skips the provider *entirely* — no upstream call, no connection-refused timeout to wait through.
+
+Live recipe (full walkthrough in [`PLAN.md`](PLAN.md) Phase 15):
+
+```bash
+# 1. Temporarily redirect Groq to a refused-connection black hole
+#    (one-line catalog edit), restart the gateway.
+# 2. Hammer the gateway with 5 calls to a groq/* model — each fails after ~9s
+#    waiting for the connect timeout.
+# 3. The 5th call trips the breaker (CLOSED→OPEN). curl /metrics:
+#       pronaos_circuit_state{provider="groq"} 2.0          # OPEN
+#       pronaos_circuit_trips_total{provider="groq"} 1.0    # one trip event
+# 4. Call #6 (streaming or non-streaming) is skipped instantly:
+#       streaming-with-OPEN-circuit: 0.33s   (vs 8.8s when CLOSED)
+#       pronaos_circuit_skipped_requests_total{provider="groq"} 1.0
+# 5. Wait 30s. /metrics now reads:
+#       pronaos_circuit_state{provider="groq"} 1.0          # HALF_OPEN
+#    The next call is the probe. If Groq is still broken → re-OPEN with fresh
+#    timer (trip_count = 2). If healthy → back to CLOSED.
+```
+
+The ~26× speedup is the breaker doing its actual job: trading a ~9 s connect timeout for a 0.33 s skipped-call decision, repeated across every request the breaker covers. On a busy upstream with intermittent outages this is what keeps p99 latency from collapsing under transient provider degradation. New Grafana panels visualise state-per-provider plus trips/skipped over time.
+
+### Empirical claim #7 — pre-flight token estimator saves the upstream call
+
+When a team's token budget is tight, the gateway estimates the request's token cost (heuristic: words × 1.30 + punctuation + per-message overhead; falls back to `chars/2.5` for non-Latin scripts) and denies up-front if it can't fit — *before* the upstream call.
+
+Live recipe:
+
+```bash
+# 1. Reset the team's current_period_tokens to 0, set monthly_token_budget to 50.
+pronaos-cli team set-budget <team-id> --tokens 50
+
+# 2. Send a request with max_tokens=1000 (estimate ≈ 1011 >> 50 budget):
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
+  -d '{"model":"groq/llama-3.1-8b-instant","max_tokens":1000,
+       "messages":[{"role":"user","content":"Write me a long essay."}]}'
+
+# Response:  HTTP/1.1 429 Too Many Requests
+#            X-Pronaos-Preflight-Estimate: 1011
+#            Retry-After: 1179440
+#            {"detail":{"type":"monthly_token_budget_exhausted",
+#                       "message":"preflight estimate of 1011 tokens would
+#                                  exceed the team's remaining monthly budget",
+#                       "estimated_tokens":1011, ...}}
+
+# 3. Check the books: counter is unchanged (Groq was NOT called).
+pronaos-cli team usage <team-id>
+#   tokens used:  0 (0.0%)        ← saved one full upstream call
+#   token budget: 50
+
+# 4. /metrics shows the new counter:
+#   pronaos_preflight_denials_total{reason="monthly_token_budget_exhausted"} 1.0
+```
+
+Same prompt with `max_tokens: 5` (small enough to fit the budget) returns 200 OK and `tokens used: 41`. The estimator is calibrated within ±15% of Groq's actual tokenizer on representative English samples — close enough to be a budget guardrail, honest enough not to claim it's a billing oracle.
+
 ### Operational view + Swagger
 
 ![Pronaos Overview Grafana dashboard](docs/images/grafana-overview.png)
@@ -164,18 +226,26 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | Universal API | OpenAI-compatible `/v1/chat/completions`, streaming SSE | ✅ shipped |
 | Provider support | 12+ providers via native Anthropic + generic OpenAI-compat adapter | ✅ shipped |
 | Routing & failover | Prefix-based selection; automatic retry across configured chain | ✅ shipped |
+| **Circuit breaker** | Per-provider CLOSED/OPEN/HALF_OPEN; auto-skip OPEN providers; metrics + Grafana panels | ✅ shipped |
+| **Tool / function calling** | OpenAI schema on input; bidirectional ↔ Anthropic translation (tool defs, `tool_choice`, `tool_use`) | ✅ shipped |
+| **Streaming tools** | SSE `delta.tool_calls` accumulator (single + parallel tools, both adapters) | ✅ shipped |
+| **Tool-result round-trip** | `role:"tool"` + assistant `tool_calls` echo accepted; cache correctly bypasses agent turns | ✅ shipped |
+| **Streaming cancellation** | `CancelledError` propagated; `pronaos_streams_cancelled_total` metric per provider+model | ✅ shipped |
 | Multi-tenancy | Tenants, teams, scoped API keys (argon2 hashing); bidirectional least-privilege scopes | ✅ shipped |
 | Rate limits | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod) | ✅ shipped |
 | Token + cost budgets | Per-team monthly limits with calendar-month rollover, atomic SQL writes | ✅ shipped |
+| **Pre-flight quota gate** | Heuristic token estimator denies over-budget requests BEFORE the upstream call (saves real cost) | ✅ shipped |
+| **Per-team model allowlist** | fnmatch patterns; NULL = unrestricted, `[]` = paused-deny-all; CLI + admin API | ✅ shipped |
 | Cost accounting | Per-call audit rows, `GET /v1/admin/usage` with filters, `team chargeback` CLI | ✅ shipped |
-| Prometheus + Grafana | `/metrics` endpoint, two provisioned dashboards, OTEL → Tempo | ✅ shipped |
+| Prometheus + Grafana | `/metrics` endpoint, two provisioned dashboards (11 panels), OTEL → Tempo | ✅ shipped |
 | OpenTelemetry | FastAPI / httpx / SQLAlchemy + named spans for `pronaos.quota.check` and `pronaos.provider.call` | ✅ shipped |
+| **Outbound webhooks** | HMAC-SHA256-signed POST for `quota.exhausted` / `circuit.tripped` / `audit.chain_broken`; retry-on-5xx | ✅ shipped |
 | Semantic caching | Two-tier (Redis exact-match + Qdrant embedding-based), tenant-isolated by construction | ✅ shipped |
 | Guardrails | PII redaction (5 rules + Luhn) + prompt-injection detection, ingress + egress + streaming-aware | ✅ shipped |
-| Per-team policy | `Team.guardrail_policy` lets ops disable specific rules per tenant | ✅ shipped |
-| Eval harness | LLM-as-judge scorer, YAML golden sets, CLI runner, four bundled experiments | ✅ shipped |
+| Per-team policy | `Team.guardrail_policy` lets ops disable specific rules per tenant; admin API + CLI | ✅ shipped |
+| Eval harness | LLM-as-judge scorer, YAML golden sets, CLI runner, **four bundled experiments** | ✅ shipped |
 | Audit log | Per-tenant hash-chained record; `pronaos-cli audit verify` walks the chain | ✅ shipped |
-| Admin CLI | `pronaos-cli` for tenant / team / key / budget / policy / audit lifecycle | ✅ shipped |
+| Admin CLI | `pronaos-cli` for tenant / team / key / budget / policy / allowlist / webhook / audit | ✅ shipped |
 | Admin UI | Next.js dashboard for tenants, keys, usage, traces | 🔜 roadmap |
 | OIDC / SSO | Keycloak / Auth0 / Azure AD for human + admin access | 🔜 roadmap |
 | Deploy | Helm chart + Terraform module for one-command production install | 🔜 roadmap |
@@ -185,14 +255,19 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 ## Architecture
 
 ```
-client app ─► Pronaos ─► [ auth ─► quotas ─► guardrails ─► cache ─► router ─► provider ]
-                │                                                              │
-                ├─► OTEL collector ─► Tempo / Prometheus / Grafana             ├─► Anthropic
-                ├─► Postgres (tenants, keys, quotas, usage, audit)             ├─► Groq / OpenAI
-                └─► Redis + Qdrant (L1 cache + L2 semantic cache, rate limits) └─► Bedrock / Gemini / …
+client app ─► Pronaos ─► [ auth ─► allowlist ─► preflight ─► guardrails ─► cache ─► failover ─► provider ]
+                │                                                              │              │
+                │                                          (per-provider       │              │
+                │                                           circuit breaker)   │              │
+                ├─► OTEL collector ─► Tempo / Prometheus / Grafana             │              ├─► Anthropic
+                ├─► Postgres (tenants, keys, quotas, usage, audit, policy)     │              ├─► Groq / OpenAI
+                ├─► Redis + Qdrant (L1 cache + L2 semantic cache, rate limits) │              └─► Bedrock / Gemini / …
+                └─► Webhook dispatcher ─► tenant's incident channel (Slack / PagerDuty / …)
 ```
 
-Every request: auth → quota check → ingress guardrails → cache lookup → routing → provider call → egress guardrails → cache write → audit append → observability export. Streaming responses get the same coverage (egress + audit run at stream close).
+Every request, in order: auth → model-allowlist gate → pre-flight token estimate → ingress guardrails → cache lookup → routing → circuit-breaker-aware failover → provider call → egress guardrails → cache write → audit append → usage record → observability export. Streaming responses get the same coverage (egress + audit run at stream close; cancellation propagates cleanly to upstream).
+
+Operationally-significant events (quota exhaustion, circuit trips, audit chain breaks) push out as HMAC-signed webhook deliveries to the tenant's configured receiver.
 
 Deeper deep-dive in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -211,7 +286,7 @@ cp .env.example .env       # or `Copy-Item .env.example .env` on Windows
 ./tasks.cmd install        # creates .venv and installs deps   (or: make install)
 ./tasks.cmd db-upgrade     # apply Alembic migrations          (or: make db-upgrade)
 ./tasks.cmd dev            # start the gateway on :8080        (or: make dev)
-./tasks.cmd test           # 310+ unit tests
+./tasks.cmd test           # 414 unit + 2 integration tests
 ```
 
 Smoke test: `curl -s http://localhost:8080/v1/healthz` → `{"status":"ok","version":"0.1.0"}`.
@@ -251,12 +326,13 @@ Full details in [`scripts/README.md`](scripts/README.md).
 
 ## What's left
 
-Active roadmap items (everything else in the table above is shipped):
+Active roadmap items (everything else in the Feature highlights table is shipped):
 
 - **Admin UI** — Next.js dashboard for tenants, keys, usage, traces
-- **Tool / function calling** — uniform tool-use shape across providers
 - **Multi-judge eval** — Anthropic + Groq concurrent grading for inter-judge agreement
-- **Cost-aware routing** — close the loop on claim #4: route by `$/correct` policy
+- **Cost-aware routing** — close the loop on claim #4: route by `$/correct` policy (preflight gate is half of this — denying impossible requests up front — but the auto-pick-cheapest-eligible-model layer is the other half)
+- **Distributed circuit-breaker state** — per-process today; a Redis-backed registry would let multiple gateway replicas share trip decisions
+- **Anthropic live verification of streaming tool_use** — unit-tested with realistic SSE bodies; needs a real Anthropic key for full end-to-end demo
 - **Helm + Terraform** — one-command production deploy
 - **OIDC / SSO** — Keycloak / Auth0 / Azure AD for human access
 

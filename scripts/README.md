@@ -246,8 +246,99 @@ to the question (IPs in a networking prompt; SSNs in a tax-policy
 prompt; etc.). Without an experiment like this, the failure is
 invisible until a user complains.
 
-The mitigation belongs in a follow-up phase — per-tenant policy that
-can disable specific rules for specific endpoints, or a rephrase pass
-that replaces redacted tokens with type-aware placeholders. The point
-isn't that redaction is broken; it's that **quality regressions need
-measurement, not assumption**.
+**Mitigation shipped:** `Team.guardrail_policy` is a JSON column
+resolved per-request. Operators can disable individual rules per
+tenant (`pronaos-cli team set-guardrail-policy <id> --disable
+pii.ipv4`) — re-running the experiment with `pii.ipv4` disabled
+restores the broken case to score 1.00. Engineering arc closed:
+built → measured → identified failure → shipped per-tenant
+mitigation → re-verified the regression is gone.
+
+## `eval_cost_quality.py` — does the more-expensive model earn its premium?
+
+The FinOps question the dashboards can't answer alone: *if I switch
+to a cheaper model, do I lose quality?* This script measures the
+answer on a fixed eval suite.
+
+### Method
+
+1. Pick a candidate-model list (default: Groq 8B vs Groq Llama-4 Scout)
+2. Hold the judge constant (Groq 70B-versatile, kept out of the
+   candidate list to avoid self-grading)
+3. For each candidate: run the same golden set, read the gateway's
+   authoritative `pronaos.cost_hcents` from each response, compute
+   pass-rate and **$/correct answer**
+
+### Sample output (real run)
+
+```text
+groq/llama-3.1-8b-instant                       1.000   8/8   $0.000050/call  $0.000050/correct
+groq/meta-llama/llama-4-scout-17b-16e-instruct  1.000   8/8   $0.000463/call  $0.000463/correct
+```
+
+**Llama-4 Scout costs 9.3× more per call than the 8B and delivers
+identical 8/8 quality on this workload.** Defaulting to the bigger
+model would waste ~89% of the spend with no measurable quality gain.
+
+### Run it
+
+```bash
+python scripts/eval_cost_quality.py --api-key pn_live_…
+
+# Custom candidate list:
+python scripts/eval_cost_quality.py --api-key pn_live_… \
+    --candidates groq/llama-3.1-8b-instant,groq/llama-3.3-70b-versatile
+
+# Pin the result for archival:
+python scripts/eval_cost_quality.py --api-key pn_live_… \
+    --output docs/cost-quality-result.json
+```
+
+### Important caveats
+
+- **8-case golden set.** Harder workloads (math, multi-hop reasoning,
+  long-context retrieval) would likely differentiate; the result
+  here is "on these 8 representative QA cases, 8B suffices."
+- **The point is not "always pick 8B."** It is *"measure before you
+  default to the expensive model."* Without an experiment like this,
+  the default-to-bigger choice is invisible burn.
+
+## `webhook_receiver.py` — demo receiver for outbound events
+
+A 60-line FastAPI app that listens on `127.0.0.1:9090/webhook`,
+verifies the `X-Pronaos-Signature` HMAC against a shared secret, and
+prints every received POST to stdout. Useful for live-verifying that
+the gateway is actually firing webhooks during a demo (recruiter
+asks "how do I know it works?" — point this thing at the gateway
+and trip a circuit).
+
+### Run it
+
+```bash
+python scripts/webhook_receiver.py --port 9090 --secret your-shared-secret
+
+# In another terminal, configure the gateway to point at it:
+pronaos-cli tenant set-webhook <tenant-id> \
+    --url http://127.0.0.1:9090/webhook \
+    --secret your-shared-secret
+
+# Now trigger an event (e.g. exhaust a budget):
+pronaos-cli team set-budget <team-id> --tokens 1
+curl -X POST http://localhost:8080/v1/chat/completions \
+    -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
+    -d '{"model":"groq/llama-3.1-8b-instant",
+         "messages":[{"role":"user","content":"hi"}]}'
+```
+
+The receiver's terminal will print the signed POST with the parsed
+payload and a `hmac: VALID` line. If a payload tampered in transit
+would fail the signature check, the receiver prints `hmac: INVALID`
+and discards.
+
+### What's actually being verified
+
+The HMAC-SHA256 over the raw POST body, using the shared secret. This
+is the same scheme GitHub webhooks use — receiver-side libraries
+written for that ecosystem work unchanged. The script's own
+verification logic is six lines (`hmac.compare_digest(...)`) and
+lives in `_verify_signature()` for reference.
