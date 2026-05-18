@@ -34,6 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pronaos.auth.api_keys import Principal, verify_key
 from pronaos.core.quota import QuotaTracker
 from pronaos.core.ratelimit import RateLimiter
+from pronaos.core.webhooks import (
+    WebhookConfig,
+    WebhookDispatcher,
+    quota_exhausted_event,
+)
 from pronaos.observability.metrics import record_quota_denial
 
 _bearer = HTTPBearer(auto_error=False)
@@ -136,6 +141,7 @@ def enforce_quotas(
     # FastAPI would silently fall back to treating ``principal`` as a query
     # param, returning 422 instead of 401 on missing auth.
     async def _gate(
+        request: Request,
         principal: Principal = Depends(require_scope(required_scope)),  # noqa: B008
         limiter: RateLimiter = Depends(get_rate_limiter),  # noqa: B008
         tracker: QuotaTracker = Depends(get_quota_tracker),  # noqa: B008
@@ -150,6 +156,13 @@ def enforce_quotas(
             )
             if not rl_result.allowed:
                 record_quota_denial("rate_limit")
+                _publish_quota_denial(
+                    request,
+                    principal,
+                    reason="rate_limit",
+                    retry_after_seconds=int(rl_result.retry_after_seconds or 0)
+                    or None,
+                )
                 raise _rate_limited(
                     retry_after_seconds=rl_result.retry_after_seconds,
                     reason="rate_limit",
@@ -160,6 +173,13 @@ def enforce_quotas(
         if not budget_result.allowed:
             reason = budget_result.reason or "budget_exhausted"
             record_quota_denial(reason)
+            _publish_quota_denial(
+                request,
+                principal,
+                reason=reason,
+                retry_after_seconds=int(budget_result.retry_after_seconds or 0)
+                or None,
+            )
             raise _rate_limited(
                 retry_after_seconds=budget_result.retry_after_seconds,
                 reason=reason,
@@ -168,6 +188,40 @@ def enforce_quotas(
         return principal
 
     return _gate
+
+
+def _publish_quota_denial(
+    request: Request,
+    principal: Principal,
+    *,
+    reason: str,
+    retry_after_seconds: int | None,
+) -> None:
+    """Fire a ``quota.exhausted`` webhook event for the principal's tenant.
+
+    Fire-and-forget — no-op if the tenant has no webhook configured.
+    Called immediately before raising the 429 so the operator's
+    receiver learns about the denial in near-real-time, not on the
+    next dashboard scrape.
+    """
+    dispatcher: WebhookDispatcher | None = getattr(
+        request.app.state, "webhook_dispatcher", None
+    )
+    if dispatcher is None:
+        return
+    dispatcher.publish(
+        WebhookConfig(
+            url=principal.webhook_url,
+            secret=principal.webhook_secret,
+        ),
+        quota_exhausted_event(
+            tenant_id=principal.tenant_id,
+            team_id=principal.team_id,
+            team_name=principal.team_name,
+            reason=reason,
+            retry_after_seconds=retry_after_seconds,
+        ),
+    )
 
 
 def _rate_limited(retry_after_seconds: float, reason: str) -> HTTPException:

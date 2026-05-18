@@ -252,6 +252,78 @@ class QuotaTracker:
             return QuotaResult.allow_bounded(remaining=token_budget - tokens_used)
         return QuotaResult.allow_unlimited()
 
+    async def check_preflight(
+        self,
+        session: AsyncSession,
+        team_id: str,
+        estimated_tokens: int,
+        *,
+        now: datetime | None = None,
+    ) -> QuotaResult:
+        """Pre-flight token-budget check using an estimate.
+
+        Asks: "if I add ``estimated_tokens`` to the team's
+        current_period_tokens, would they exceed monthly_token_budget?"
+        If yes, returns a deny — letting the chat handler reject
+        BEFORE the upstream call is made.
+
+        Different from ``check_budget`` in TWO ways:
+        1. Considers the projected total (existing + estimate), not
+           just the existing total.
+        2. Only checks the token budget — cost budget isn't checked
+           because we don't know the provider's price-per-token at
+           preflight time (model routing happens later). Cost budget
+           is still enforced post-flight when the real cost is known.
+
+        Returns allow_unlimited() if the team has no token budget
+        (NULL = unbounded) — backwards-compat with existing tests.
+
+        ``estimated_tokens`` must be > 0; callers pass the output of
+        ``estimate_tokens`` directly. A 0 estimate skips the check
+        (no-op — never denies on zero), matching the case where the
+        estimator can't size the input (e.g. multimodal content).
+        """
+        if estimated_tokens <= 0:
+            return QuotaResult.allow_unlimited()
+
+        now = now or datetime.now(tz=UTC)
+
+        stmt = select(
+            Team.monthly_token_budget,
+            Team.current_period_tokens,
+            Team.period_resets_at,
+        ).where(Team.id == team_id)
+        row = (await session.execute(stmt)).one_or_none()
+        if row is None:
+            return QuotaResult(
+                allowed=False,
+                tokens_remaining=0,
+                reason="team_not_found",
+                retry_after_seconds=0.0,
+            )
+
+        token_budget, tokens_used, resets_at = row
+        if token_budget is None:
+            # Unlimited team — preflight has nothing to enforce.
+            return QuotaResult.allow_unlimited()
+
+        # Normalise tz the same way check_budget does (SQLite drops tz).
+        if resets_at.tzinfo is None:
+            resets_at = resets_at.replace(tzinfo=UTC)
+
+        # Note: we DON'T do the lazy rollover here. check_budget (which
+        # runs as part of enforce_quotas, before this) already
+        # rolled the period if needed. By the time preflight runs, the
+        # counters are guaranteed current.
+        projected = tokens_used + estimated_tokens
+        if projected > token_budget:
+            retry_after = max(0.0, (resets_at - now).total_seconds())
+            return QuotaResult.deny_token_exhausted(
+                retry_after_seconds=retry_after
+            )
+
+        return QuotaResult.allow_bounded(remaining=token_budget - projected)
+
     async def record_usage(
         self,
         session: AsyncSession,

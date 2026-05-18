@@ -56,6 +56,7 @@ All metrics are prefixed `pronaos_` and exposed on `:8080/metrics`.
 | `pronaos_provider_cost_hcents_total`       | counter   | provider, model              |
 | `pronaos_quota_denials_total`              | counter   | reason                       |
 | `pronaos_cache_lookups_total`              | counter   | tier, result                 |
+| `pronaos_guardrail_hits_total`             | counter   | rule, action, direction      |
 
 ### A note on cardinality
 
@@ -101,6 +102,49 @@ construction, not runtime check.
 | `PRONAOS_SEMANTIC_CACHE_ENABLED` | `false` | Set `true` to enable L2. Costs ~1-2 s startup (PyTorch boot) + ~250 MB RAM. |
 | `PRONAOS_QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint. |
 | `PRONAOS_SEMANTIC_CACHE_THRESHOLD` | `0.95` | Cosine similarity floor for L2 hits. Lower = more hits + more false-positive risk. |
+
+## Guardrails (Phase 8)
+
+Ingress + egress content inspection inside the chat handler:
+
+- **Ingress** (before cache lookup): scans each `user` message. PII gets
+  redacted; the cache key is derived from the **post-redaction** text so
+  two requests differing only in identifiers collide on the same cache
+  entry — the cache layer never sees the raw PII.
+- **Egress** (after provider call, before cache write): scans the
+  assistant response. Catches the model regurgitating training-set PII.
+  Can only REDACT — by the time we're here the upstream call already
+  happened.
+
+**Rules that ship enabled by default:**
+
+| Rule name | What it catches | Default action |
+| --- | --- | --- |
+| `pii.email` | standard `local@domain` shape | REDACT |
+| `pii.phone` | US-style phone numbers (with common separators) | REDACT |
+| `pii.ssn` | hyphenated `NNN-NN-NNNN` | REDACT |
+| `pii.credit_card` | 13–19 digits with Luhn-checksum filter | REDACT |
+| `pii.ipv4` | dotted-quad IPv4 | REDACT |
+| `injection` | known jailbreak preambles ("ignore previous instructions", etc.) | LOG_ONLY |
+
+The `injection` rule defaults to LOG_ONLY because legitimate prompts
+about prompt engineering / red-teaming / safety research would
+otherwise trip it. Operators tightening enforcement can flip it to
+BLOCK via per-tenant policy (deferred to a later phase).
+
+**Response headers** the gateway stamps:
+
+- `X-Pronaos-Guardrails: redacted:<rule1>,<rule2>` — one or more
+  redactions were applied; request still went through
+- `X-Pronaos-Guardrails: blocked:<rule>` — request short-circuited
+  with 422
+- absent — no rule fired (or only LOG_ONLY hits)
+
+**Tuning knobs (env vars):**
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PRONAOS_GUARDRAILS_ENABLED` | `true` | Set `false` to skip all guardrail scanning (e.g. for interactive prompt-engineering work where false-positives are annoying). |
 
 ## OTEL spans
 

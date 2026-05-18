@@ -15,6 +15,7 @@ Keys are shown exactly once at issuance. Losing one means issuing a new one.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from collections.abc import Coroutine
 from datetime import UTC, datetime
@@ -38,10 +39,14 @@ tenant_app = typer.Typer(help="Manage tenants.")
 team_app = typer.Typer(help="Manage teams.")
 key_app = typer.Typer(help="Manage API keys.")
 db_app = typer.Typer(help="Database operations.")
+eval_app = typer.Typer(help="Run evaluation suites.")
+audit_app = typer.Typer(help="Inspect + verify the hash-chained audit log.")
 app.add_typer(tenant_app, name="tenant")
 app.add_typer(team_app, name="team")
 app.add_typer(key_app, name="key")
 app.add_typer(db_app, name="db")
+app.add_typer(eval_app, name="eval")
+app.add_typer(audit_app, name="audit")
 
 
 def _run[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -107,6 +112,122 @@ def tenant_list() -> None:
                 rows = (await session.execute(select(Tenant))).scalars().all()
                 for t in rows:
                     typer.echo(f"{t.id}\t{t.name}\t{t.created_at.isoformat()}")
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+@tenant_app.command("set-webhook")
+def tenant_set_webhook(
+    id: str,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            "--url",
+            help=(
+                "Webhook URL to POST events to. Must be set together with "
+                "--secret. Pass --clear to disable webhooks for this tenant."
+            ),
+        ),
+    ] = None,
+    secret: Annotated[
+        str | None,
+        typer.Option(
+            "--secret",
+            help=(
+                "Shared secret used to HMAC-SHA256-sign every payload. "
+                "Receivers verify via the X-Pronaos-Signature header."
+            ),
+        ),
+    ] = None,
+    clear: Annotated[
+        bool,
+        typer.Option(
+            "--clear",
+            help="Disable webhooks for this tenant (clear both url + secret).",
+        ),
+    ] = False,
+    show: Annotated[
+        bool,
+        typer.Option(
+            "--show",
+            help="Print the current webhook config (secret is redacted).",
+        ),
+    ] = False,
+) -> None:
+    """Manage per-tenant operational-event webhook delivery.
+
+    Events fired today (Phase 19):
+
+    - ``quota.exhausted``  — fires when a tenant's request is denied
+      for token-budget, cost-budget, or rate-limit exhaustion
+    - ``circuit.tripped``  — fires when a provider's circuit breaker
+      transitions to OPEN
+    - ``audit.chain_broken`` — fires from ``pronaos-cli audit verify``
+      when chain integrity verification detects tampering
+
+    Every payload is HTTP POSTed with an HMAC-SHA256 signature in
+    ``X-Pronaos-Signature: sha256=<hex>`` so receivers can verify
+    authenticity without trusting the channel.
+
+    Examples
+    --------
+        # Configure:
+        pronaos-cli tenant set-webhook <id> \\
+            --url https://hooks.slack.com/services/X/Y/Z \\
+            --secret supersecret
+
+        # Show current state:
+        pronaos-cli tenant set-webhook <id> --show
+
+        # Disable:
+        pronaos-cli tenant set-webhook <id> --clear
+    """
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                tenant_row = await session.get(Tenant, id)
+                if tenant_row is None:
+                    typer.echo(f"tenant not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+
+                if show:
+                    if not tenant_row.webhook_url:
+                        typer.echo("(webhooks disabled)")
+                    else:
+                        typer.echo(f"url:    {tenant_row.webhook_url}")
+                        # Secret is sensitive — redact, just show that it's set.
+                        has_secret = bool(tenant_row.webhook_secret)
+                        typer.echo(f"secret: {'(set)' if has_secret else '(missing)'}")
+                    return
+
+                if clear:
+                    tenant_row.webhook_url = None
+                    tenant_row.webhook_secret = None
+                    typer.echo(f"ok\t{id}\twebhook=disabled")
+                    return
+
+                if url is None or secret is None:
+                    typer.echo(
+                        "error: pass BOTH --url and --secret (or --clear / --show)",
+                        err=True,
+                    )
+                    raise typer.Exit(code=2)
+
+                if not url.startswith(("http://", "https://")):
+                    typer.echo(
+                        f"error: webhook URL must start with http(s):// — got {url!r}",
+                        err=True,
+                    )
+                    raise typer.Exit(code=2)
+
+                tenant_row.webhook_url = url
+                tenant_row.webhook_secret = secret
+                typer.echo(f"ok\t{id}\twebhook={url}")
         finally:
             await engine.dispose()
 
@@ -592,7 +713,7 @@ def team_chargeback(
                 typer.echo(f"team:     {team.name} ({team.id})")
                 typer.echo(f"window:   {start_dt.isoformat()}  →  {end_dt.isoformat()}")
                 typer.echo(f"requests: {requests:,}")
-                typer.echo(f"tokens:   {total_tokens:,}  ({int(prompt_sum):,} in / {int(completion_sum):,} out)")
+                typer.echo(f"tokens:   {total_tokens:,}  ({int(prompt_sum):,} in / {int(completion_sum):,} out)")  # noqa: E501 — single-line summary for terminal readability
                 typer.echo(f"cost:     {_format_usd(cost_sum)}")
 
                 if not groups:
@@ -613,9 +734,558 @@ def team_chargeback(
                 for name, gcount, gprompt, gcompletion, gcost in groups:
                     gtokens = int(gprompt) + int(gcompletion)
                     typer.echo(
-                        f"  {str(name):<{name_width}}  {int(gcount):>8,}  "
+                        f"  {name!s:<{name_width}}  {int(gcount):>8,}  "
                         f"{gtokens:>12,}  {_format_usd(int(gcost)):>12}"
                     )
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+# --------------------------------------------------------------------------- #
+# eval — LLM-as-judge evaluation suite (Phase 9)                              #
+# --------------------------------------------------------------------------- #
+
+
+@eval_app.command("run")
+def eval_run(
+    golden_set: Annotated[
+        Path,
+        typer.Option(
+            "--golden-set",
+            "-g",
+            help="Path to a YAML golden-set file (see tests/eval/data/).",
+        ),
+    ],
+    candidate_model: Annotated[
+        str,
+        typer.Option(
+            "--candidate-model",
+            "-c",
+            help="Model id to evaluate (e.g. groq/llama-3.1-8b-instant).",
+        ),
+    ],
+    judge_model: Annotated[
+        str,
+        typer.Option(
+            "--judge-model",
+            "-j",
+            help="Model id used as the judge (e.g. anthropic/claude-haiku-4-5). "
+            "Choose a stronger model than the candidate when you can.",
+        ),
+    ],
+    api_key: Annotated[
+        str,
+        typer.Option(
+            "--api-key",
+            "-k",
+            help="Bearer key for the gateway (used for both candidate + judge calls).",
+        ),
+    ],
+    base_url: Annotated[
+        str, typer.Option(help="Gateway base URL.")
+    ] = "http://localhost:8080",
+    pass_threshold: Annotated[
+        float,
+        typer.Option(
+            "--threshold",
+            help="A case 'passes' when its score >= this (0.0-1.0).",
+        ),
+    ] = 0.7,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Save the full result JSON to this path."
+        ),
+    ] = None,
+) -> None:
+    """Run an LLM-as-judge evaluation against a candidate model.
+
+    Examples
+    --------
+        # smoke run against the bundled basic golden set:
+        pronaos-cli eval run \\
+            -g tests/eval/data/basic.yaml \\
+            -c groq/llama-3.1-8b-instant \\
+            -j anthropic/claude-haiku-4-5 \\
+            -k pn_live_...
+
+        # save the result JSON for diffing across runs:
+        pronaos-cli eval run ... -o eval-results/$(date +%F).json
+    """
+    from pronaos.eval.data import load_golden_set
+    from pronaos.eval.runner import EvalRunner
+    from pronaos.eval.scorer import LLMJudgeScorer
+
+    try:
+        gs = load_golden_set(golden_set)
+    except (FileNotFoundError, ValueError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=2) from None
+
+    scorer = LLMJudgeScorer(
+        base_url=base_url, api_key=api_key, judge_model=judge_model
+    )
+    runner = EvalRunner(
+        candidate_base_url=base_url,
+        candidate_api_key=api_key,
+        candidate_model=candidate_model,
+        scorer=scorer,
+        judge_model_id=judge_model,
+        pass_threshold=pass_threshold,
+    )
+
+    typer.echo(f"golden set:  {gs.name} ({len(gs)} cases)")
+    typer.echo(f"candidate:   {candidate_model}")
+    typer.echo(f"judge:       {judge_model}")
+    typer.echo(f"threshold:   {pass_threshold:.2f}")
+    typer.echo("")
+
+    summary = _run(runner.run(gs))
+
+    # ---- per-row table ----
+    typer.echo(
+        f"{'case':<28} {'cat':<14} {'score':>6}  reason"
+    )
+    typer.echo("-" * 80)
+    for row in summary.rows:
+        if row.candidate_error:
+            typer.echo(f"{row.case_id:<28} {row.category:<14} {'ERR':>6}  {row.candidate_error[:36]}")  # noqa: E501 — fixed-width display row
+        elif row.judge_error:
+            typer.echo(f"{row.case_id:<28} {row.category:<14} {'judge?':>6}  {row.judge_error[:36]}")  # noqa: E501
+        else:
+            why = row.justification[:42] if row.justification else ""
+            typer.echo(f"{row.case_id:<28} {row.category:<14} {row.score:>6.2f}  {why}")
+
+    # ---- aggregate ----
+    typer.echo("")
+    typer.echo("=" * 80)
+    typer.echo(f"total cases:       {summary.total_cases}")
+    typer.echo(f"scored:            {summary.scored_cases}")
+    typer.echo(f"candidate errors:  {summary.candidate_errors}")
+    typer.echo(f"judge errors:      {summary.judge_errors}")
+    typer.echo(f"overall mean:      {summary.overall_mean:.3f}")
+    typer.echo(f"overall median:    {summary.overall_median:.3f}")
+    typer.echo(f"pass rate (≥{pass_threshold:.2f}): {summary.overall_pass_rate:.1%}")
+    typer.echo(f"duration:          {summary.duration_seconds:.1f}s")
+
+    if summary.categories:
+        typer.echo("")
+        typer.echo("by category:")
+        typer.echo(f"  {'category':<20} {'n':>4} {'mean':>6} {'pass':>6}")
+        for c in summary.categories:
+            typer.echo(
+                f"  {c.name:<20} {c.count:>4} {c.mean:>6.2f} {c.pass_rate:>5.0%}"
+            )
+
+    if output is not None:
+        summary.save_json(output)
+        typer.echo("")
+        typer.echo(f"saved: {output}")
+
+
+# --------------------------------------------------------------------------- #
+# team set-guardrail-policy (Phase 8.2)                                       #
+# --------------------------------------------------------------------------- #
+
+
+@team_app.command("set-guardrail-policy")
+def team_set_guardrail_policy(
+    id: str,
+    disable: Annotated[
+        list[str],
+        typer.Option(
+            "--disable",
+            help="Add a rule to the disabled list (skip it entirely). "
+            "Repeatable.",
+        ),
+    ] = [],  # noqa: B006 — Typer interprets [] as 'no occurrences'
+    enable: Annotated[
+        list[str],
+        typer.Option(
+            "--enable",
+            help="Remove a rule from the disabled list (return to engine default). "
+            "Repeatable.",
+        ),
+    ] = [],  # noqa: B006
+    set_action: Annotated[
+        list[str],
+        typer.Option(
+            "--set-action",
+            help="Override action for a rule. Format: RULE:ACTION (e.g. "
+            "injection:block). Repeatable.",
+        ),
+    ] = [],  # noqa: B006
+    reset: Annotated[
+        bool,
+        typer.Option("--reset", help="Clear ALL policy overrides for this team."),
+    ] = False,
+    show: Annotated[
+        bool,
+        typer.Option("--show", help="Print the current policy and exit."),
+    ] = False,
+) -> None:
+    """Manage per-team guardrail policy overrides.
+
+    The team's ``guardrail_policy`` JSON column lets you turn off
+    specific rules or change their default action for one tenant
+    without redeploying the gateway. Useful when a particular endpoint
+    or use-case has documented quality regressions from a rule
+    (e.g. PII redaction over-firing on topically-relevant tokens).
+
+    Examples
+    --------
+        pronaos-cli team set-guardrail-policy <id> --disable pii.ipv4
+        pronaos-cli team set-guardrail-policy <id> --set-action injection:block
+        pronaos-cli team set-guardrail-policy <id> --enable pii.ipv4
+        pronaos-cli team set-guardrail-policy <id> --reset
+        pronaos-cli team set-guardrail-policy <id> --show
+    """
+    from pronaos.guardrails.policy import validate_policy
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                team = await session.get(Team, id)
+                if team is None:
+                    typer.echo(f"team not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+
+                # Start from existing policy or an empty shell.
+                policy: dict[str, Any] = dict(team.guardrail_policy or {})
+
+                if reset:
+                    team.guardrail_policy = None
+                    typer.echo(f"ok\t{id}\tpolicy=reset")
+                    if show:
+                        typer.echo("(no policy override; using engine defaults)")
+                    return
+
+                if show:
+                    if not team.guardrail_policy:
+                        typer.echo("(no policy override; using engine defaults)")
+                    else:
+                        import json as _json
+
+                        typer.echo(_json.dumps(team.guardrail_policy, indent=2))
+                    return
+
+                # Apply --disable / --enable to disabled_rules list.
+                disabled = set(policy.get("disabled_rules", []))
+                disabled.update(disable)
+                disabled.difference_update(enable)
+                if disabled:
+                    policy["disabled_rules"] = sorted(disabled)
+                elif "disabled_rules" in policy:
+                    del policy["disabled_rules"]
+
+                # Apply --set-action to rule_actions map.
+                actions = dict(policy.get("rule_actions", {}))
+                for entry in set_action:
+                    if ":" not in entry:
+                        typer.echo(
+                            f"error: --set-action expects RULE:ACTION, got {entry!r}",
+                            err=True,
+                        )
+                        raise typer.Exit(code=2)
+                    rule, action = entry.split(":", 1)
+                    actions[rule.strip()] = action.strip().lower()
+                if actions:
+                    policy["rule_actions"] = actions
+                elif "rule_actions" in policy:
+                    del policy["rule_actions"]
+
+                # Validate before persisting — better to reject a typo here
+                # than have the resolver silently drop it at request time.
+                errors = validate_policy(policy or None)
+                if errors:
+                    typer.echo("error: invalid policy", err=True)
+                    for e in errors:
+                        typer.echo(f"  - {e}", err=True)
+                    raise typer.Exit(code=2)
+
+                team.guardrail_policy = policy or None
+                display = "(default)" if team.guardrail_policy is None else "set"
+                typer.echo(f"ok\t{id}\tpolicy={display}")
+                if team.guardrail_policy:
+                    import json as _json
+
+                    typer.echo(_json.dumps(team.guardrail_policy, indent=2))
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+# --------------------------------------------------------------------------- #
+# team set-allowed-models (Phase 17)                                          #
+# --------------------------------------------------------------------------- #
+
+
+@team_app.command("set-allowed-models")
+def team_set_allowed_models(
+    id: str,
+    models: Annotated[
+        str | None,
+        typer.Option(
+            "--models",
+            help=(
+                "Comma-separated list of fnmatch patterns the team is "
+                "allowed to invoke. Examples: 'groq/*' or "
+                "'groq/*,anthropic/claude-opus-*' or "
+                "'groq/llama-3.1-8b-instant'. Pass an empty string to "
+                "explicitly deny everything (paused team)."
+            ),
+        ),
+    ] = None,
+    clear: Annotated[
+        bool,
+        typer.Option(
+            "--clear",
+            help="Clear the allowlist (NULL → team is unrestricted again).",
+        ),
+    ] = False,
+    show: Annotated[
+        bool,
+        typer.Option("--show", help="Print the current allowlist and exit."),
+    ] = False,
+) -> None:
+    """Manage per-team model allowlists.
+
+    The team's ``allowed_models`` JSON column gates which models its
+    API keys may invoke. NULL = unrestricted (default for new teams);
+    a non-empty list restricts to matching patterns; an empty list
+    ``[]`` denies everything (useful for pausing a team without
+    revoking its keys).
+
+    Examples
+    --------
+        # Only let this team use Groq's free tier:
+        pronaos-cli team set-allowed-models <id> --models 'groq/*'
+
+        # Multiple patterns:
+        pronaos-cli team set-allowed-models <id> \\
+            --models 'groq/*,anthropic/claude-opus-*'
+
+        # Pause the team (deny all model access; auth still works):
+        pronaos-cli team set-allowed-models <id> --models ''
+
+        # Lift the restriction entirely:
+        pronaos-cli team set-allowed-models <id> --clear
+
+        # Read the current policy:
+        pronaos-cli team set-allowed-models <id> --show
+    """
+    from pronaos.core.model_access import validate_allowed_models
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                team = await session.get(Team, id)
+                if team is None:
+                    typer.echo(f"team not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+
+                if show:
+                    if team.allowed_models is None:
+                        typer.echo("(unrestricted — no allowlist set)")
+                    elif not team.allowed_models:
+                        typer.echo("(deny-all — empty list)")
+                    else:
+                        for pattern in team.allowed_models:
+                            typer.echo(pattern)
+                    return
+
+                if clear:
+                    team.allowed_models = None
+                    typer.echo(f"ok\t{id}\tallowed_models=unrestricted")
+                    return
+
+                if models is None:
+                    typer.echo(
+                        "error: pass --models, --clear, or --show",
+                        err=True,
+                    )
+                    raise typer.Exit(code=2)
+
+                # Parse the comma-separated input. Empty string → []
+                # (the explicit deny-all policy).
+                if models.strip() == "":
+                    patterns: list[str] = []
+                else:
+                    patterns = [p.strip() for p in models.split(",") if p.strip()]
+
+                # Validate before write. The validator raises ValueError
+                # with a human-readable reason; bubble it to stderr +
+                # exit 2 to mirror the guardrail-policy CLI's UX.
+                try:
+                    validate_allowed_models(patterns)
+                except ValueError as e:
+                    typer.echo(f"error: invalid allowed_models: {e}", err=True)
+                    raise typer.Exit(code=2) from None
+
+                team.allowed_models = patterns
+                if not patterns:
+                    typer.echo(f"ok\t{id}\tallowed_models=deny-all")
+                else:
+                    typer.echo(
+                        f"ok\t{id}\tallowed_models=" + ",".join(patterns)
+                    )
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+# --------------------------------------------------------------------------- #
+# audit — hash-chained audit log (Phase 10)                                   #
+# --------------------------------------------------------------------------- #
+
+
+@audit_app.command("verify")
+def audit_verify(
+    tenant: Annotated[
+        str,
+        typer.Option(
+            "--tenant",
+            "-t",
+            help="Tenant id whose chain to verify.",
+        ),
+    ],
+) -> None:
+    """Walk a tenant's audit chain and report tamper points.
+
+    Exit code 0 = chain intact. Non-zero = at least one break.
+    Designed to be CI-friendly (run nightly against staging or
+    production, alert on non-zero exit).
+
+    Example
+    -------
+        pronaos-cli audit verify --tenant 1743243380104bf4839758939077621e
+    """
+
+    async def _do() -> None:
+        from pronaos.audit.verifier import AuditVerifier
+        from pronaos.core.webhooks import (
+            WebhookConfig,
+            WebhookDispatcher,
+            audit_chain_broken_event,
+        )
+        from pronaos.db.models import Tenant
+
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        dispatcher = WebhookDispatcher()
+        try:
+            verifier = AuditVerifier()
+            async with get_session(sm) as session:
+                result = await verifier.verify(session, tenant)
+
+                # Phase 19: fire webhook events for each detected break.
+                # The CLI is the natural publish-point for chain-break
+                # events because chain verification is an out-of-band
+                # operation (nightly cron / manual), not a request-time
+                # check. Fetch the tenant's webhook config in the same
+                # session to keep this best-effort.
+                if not result.is_intact:
+                    tenant_row = await session.get(Tenant, tenant)
+                    if tenant_row is not None:
+                        config = WebhookConfig(
+                            url=tenant_row.webhook_url,
+                            secret=tenant_row.webhook_secret,
+                        )
+                        for b in result.breaks:
+                            dispatcher.publish(
+                                config,
+                                audit_chain_broken_event(
+                                    tenant_id=tenant,
+                                    record_id=b.record_id,
+                                    reason=b.reason,
+                                    ts=b.ts_iso,
+                                ),
+                            )
+
+            typer.echo(f"tenant:           {result.tenant_id}")
+            typer.echo(f"total records:    {result.total_records}")
+            typer.echo(f"verified:         {result.verified_records}")
+            typer.echo(f"breaks:           {len(result.breaks)}")
+            typer.echo("")
+            if result.is_intact:
+                typer.echo(f"chain intact ({result.verified_records} records verified)")
+            else:
+                typer.echo("CHAIN BROKEN — first 5 breaks:")
+                for b in result.breaks[:5]:
+                    typer.echo(
+                        f"  - record {b.record_id} @ {b.ts_iso}: {b.reason}"
+                    )
+                    typer.echo(f"      expected: {b.expected_hash[:16]}...")
+                    typer.echo(f"      actual:   {b.actual_hash[:16]}...")
+                if len(result.breaks) > 5:
+                    typer.echo(f"  ... and {len(result.breaks) - 5} more")
+                # Drain any in-flight webhook deliveries before exiting,
+                # so chain-break notifications aren't lost on a fast
+                # exit. Best-effort with a short deadline.
+                with contextlib.suppress(TimeoutError, Exception):
+                    await asyncio.wait_for(dispatcher.aclose(), timeout=15.0)
+                raise typer.Exit(code=1)
+        finally:
+            await dispatcher.aclose()
+            await engine.dispose()
+
+    _run(_do())
+
+
+@audit_app.command("show")
+def audit_show(
+    tenant: Annotated[
+        str,
+        typer.Option("--tenant", "-t", help="Tenant id to show records for."),
+    ],
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", help="How many recent records to show.")
+    ] = 10,
+) -> None:
+    """Print the N most recent audit records for a tenant.
+
+    Bodies are NOT stored (only hashes); use this to cross-reference
+    request_id with separately-kept application logs to retrieve the
+    original prompt/response if needed.
+    """
+
+    async def _do() -> None:
+        from pronaos.db.models import AuditRecord
+
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                stmt = (
+                    select(AuditRecord)
+                    .where(AuditRecord.tenant_id == tenant)
+                    .order_by(AuditRecord.ts.desc())
+                    .limit(limit)
+                )
+                rows = (await session.execute(stmt)).scalars().all()
+
+            if not rows:
+                typer.echo(f"no audit records for tenant {tenant}")
+                return
+
+            typer.echo(
+                f"{'ts':<26} {'model':<38} {'this_hash':<18} prev_hash"
+            )
+            for r in rows:
+                this_short = r.this_hash[:16] + ".."
+                prev_short = (r.prev_hash[:16] + "..") if r.prev_hash else "(genesis)"
+                typer.echo(
+                    f"{r.ts.isoformat()[:26]:<26} {r.model:<38} "
+                    f"{this_short:<18} {prev_short}"
+                )
         finally:
             await engine.dispose()
 

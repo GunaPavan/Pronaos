@@ -24,7 +24,18 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class ChatCompletionRequest:
-    """OpenAI-compatible chat completion request, post-auth, post-policy."""
+    """OpenAI-compatible chat completion request, post-auth, post-policy.
+
+    ``tools`` is the OpenAI shape:
+        ``[{"type":"function","function":{"name":..., "description":..., "parameters":...}}]``
+
+    Providers that natively speak this shape (Groq, OpenAI, all OpenAI-compat
+    providers) get a verbatim pass-through. Native Anthropic translates into
+    ``{"name":..., "description":..., "input_schema":...}`` on the way out.
+
+    ``tool_choice`` is "auto" | "none" | {"type":"function","function":{"name":...}}
+    same as OpenAI. Anthropic translates to its own ``tool_choice`` shape.
+    """
 
     model: str
     messages: list[dict[str, Any]]
@@ -32,17 +43,29 @@ class ChatCompletionRequest:
     max_tokens: int | None = None
     temperature: float | None = None
     tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
     extra: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ChatCompletionChunk:
-    """One chunk of a streamed response, or the full response when stream=False."""
+    """One chunk of a streamed response, or the full response when stream=False.
+
+    ``tool_calls`` carries OpenAI-shape tool invocations the model emitted.
+    Providers must translate native shapes (Anthropic's ``tool_use`` content
+    block, etc.) into this canonical form before returning. Shape:
+        ``[{"id":..., "type":"function", "function":{"name":..., "arguments":<json-string>}}]``
+
+    The ``arguments`` field is a JSON-encoded string (matching OpenAI exactly),
+    not a parsed object — this lets clients that pin the OpenAI schema
+    consume the response without any reshaping.
+    """
 
     content_delta: str
     finish_reason: str | None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    tool_calls: list[dict[str, Any]] | None = None
     raw: dict[str, Any] | None = None
 
 

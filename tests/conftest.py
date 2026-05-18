@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC
+from typing import Any
 
 import httpx
 import pytest
@@ -86,6 +87,11 @@ class AuthSetup:
     team_id: str
     key_id: str
     revoked_key: str  # pre-revoked key for negative tests
+    # Sessionmaker exposed so tests can mutate seeded rows (e.g. set a
+    # team's allowed_models, guardrail_policy, etc.) without going
+    # through the admin API. The ``streaming_setup`` fixture already
+    # does this; keeping the shape consistent across fixtures.
+    sm: Any
 
 
 @pytest_asyncio.fixture
@@ -166,6 +172,7 @@ async def auth_setup(
                 team_id=team_id,
                 key_id=key_id,
                 revoked_key=full_revoked,
+                sm=sm,
             )
     finally:
         await registry.aclose()

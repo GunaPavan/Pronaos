@@ -27,7 +27,6 @@ from pronaos.cache.layered import LayeredCache
 from pronaos.cache.null import NullCache
 from pronaos.cache.semantic import QdrantSemanticCache
 
-
 # --------------------------------------------------------------------------- #
 # Fakes                                                                       #
 # --------------------------------------------------------------------------- #

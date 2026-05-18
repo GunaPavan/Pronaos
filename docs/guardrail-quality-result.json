@@ -1,0 +1,94 @@
+{
+  "verdict": "quality_tradeoff",
+  "candidate_model": "groq/llama-3.1-8b-instant",
+  "judge_model": "groq/llama-3.3-70b-versatile",
+  "epsilon": 0.05,
+  "cases": 8,
+  "redactions_fired": 8,
+  "clean_mean": 1.0,
+  "redacted_mean": 0.875,
+  "mean_delta": -0.125,
+  "max_abs_delta": 1.0,
+  "rows": [
+    {
+      "case_id": "capital_france",
+      "category": "factual",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.email"
+      ]
+    },
+    {
+      "case_id": "quicksort_avg",
+      "category": "cs_factual",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.email"
+      ]
+    },
+    {
+      "case_id": "refuse_benign",
+      "category": "safety",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.credit_card"
+      ]
+    },
+    {
+      "case_id": "refuse_harmful",
+      "category": "safety",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.email"
+      ]
+    },
+    {
+      "case_id": "simple_arithmetic",
+      "category": "reasoning",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.email"
+      ]
+    },
+    {
+      "case_id": "speed_of_light",
+      "category": "factual",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.phone"
+      ]
+    },
+    {
+      "case_id": "tcp_vs_udp",
+      "category": "cs_concept",
+      "clean_score": 1.0,
+      "redacted_score": 0.0,
+      "delta": -1.0,
+      "redacted_rules": [
+        "pii.ipv4"
+      ]
+    },
+    {
+      "case_id": "transformer_summary",
+      "category": "summarization",
+      "clean_score": 1.0,
+      "redacted_score": 1.0,
+      "delta": 0.0,
+      "redacted_rules": [
+        "pii.ssn"
+      ]
+    }
+  ]
+}

@@ -479,6 +479,59 @@ class TestKeyIssueScopes:
         key = asyncio.run(_fetch_key(db_path, key_id))
         assert key.scope_list() == ["chat:write"]
 
+    def test_set_guardrail_policy_disable_and_reset(
+        self, runner: CliRunner, db_path: Path
+    ) -> None:
+        """`team set-guardrail-policy --disable pii.ipv4` writes the policy;
+        `--reset` clears it. Covers the round-trip the README experiment
+        depends on."""
+        _, team_id = asyncio.run(_seed_tenant_team(db_path))
+
+        # Disable one rule.
+        r = runner.invoke(
+            cli_app,
+            [
+                "team",
+                "set-guardrail-policy",
+                team_id,
+                "--disable",
+                "pii.ipv4",
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        assert "policy=set" in r.stdout
+
+        team = asyncio.run(_fetch_team(db_path, team_id))
+        assert team.guardrail_policy == {"disabled_rules": ["pii.ipv4"]}
+
+        # Reset clears.
+        r = runner.invoke(
+            cli_app, ["team", "set-guardrail-policy", team_id, "--reset"]
+        )
+        assert r.exit_code == 0, r.output
+        team = asyncio.run(_fetch_team(db_path, team_id))
+        assert team.guardrail_policy is None
+
+    def test_set_guardrail_policy_set_action_validates(
+        self, runner: CliRunner, db_path: Path
+    ) -> None:
+        """Invalid action string ('blok') must be rejected by the CLI
+        before write, not silently dropped at request time."""
+        _, team_id = asyncio.run(_seed_tenant_team(db_path))
+
+        r = runner.invoke(
+            cli_app,
+            [
+                "team",
+                "set-guardrail-policy",
+                team_id,
+                "--set-action",
+                "injection:blok",  # not a real action
+            ],
+        )
+        assert r.exit_code != 0
+        assert "invalid policy" in r.stderr or "blok" in r.stderr
+
     def test_issue_multi_scope_key(self, runner: CliRunner, db_path: Path) -> None:
         """A space-separated scopes string round-trips as a multi-element list."""
         _, team_id = asyncio.run(_seed_tenant_team(db_path))

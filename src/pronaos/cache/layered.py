@@ -27,6 +27,7 @@ is a miss, never an exception.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from pronaos.cache.base import Cache, CacheLookup
@@ -76,15 +77,13 @@ class LayeredCache(Cache):
             # Promote into L1 so the same paraphrase hits the cheaper
             # path next time. Best-effort — promotion failure is just a
             # lost optimisation, not a correctness issue.
-            try:
+            with contextlib.suppress(Exception):
                 await self._l1.put(
                     tenant_id=tenant_id,
                     model=model,
                     key_payload=key_payload,
                     response=l2_result.response,
                 )
-            except Exception:  # noqa: BLE001
-                pass
             return l2_result
 
         return CacheLookup(hit=False)

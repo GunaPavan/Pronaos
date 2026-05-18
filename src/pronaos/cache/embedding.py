@@ -72,7 +72,7 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME) -> None:
         # Lazy import so importing this module doesn't trigger PyTorch
         # initialisation for callers that never touch semantic cache.
-        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        from sentence_transformers import SentenceTransformer
 
         log.info("embedding.loading_model", model=model_name)
         self._model: Any = SentenceTransformer(model_name)
@@ -98,7 +98,11 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
             arr = self._model.encode(
                 texts, normalize_embeddings=True, show_progress_bar=False
             )
-            return arr.tolist()  # numpy → list[list[float]]
+            # numpy ndarray.tolist() is typed as Any in the numpy stubs;
+            # cast back to the concrete shape we contractually return.
+            from typing import cast
+
+            return cast(list[list[float]], arr.tolist())
 
         return await asyncio.to_thread(_encode)
 

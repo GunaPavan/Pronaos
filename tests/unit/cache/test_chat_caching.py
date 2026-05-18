@@ -33,7 +33,7 @@ from pronaos.providers.registry import ProviderRegistry
 
 def _counter(tier: str, result: str) -> float:
     try:
-        return m.cache_lookups_total.labels(tier=tier, result=result)._value.get()  # noqa: SLF001
+        return m.cache_lookups_total.labels(tier=tier, result=result)._value.get()
     except KeyError:
         return 0.0
 

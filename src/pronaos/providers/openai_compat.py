@@ -151,6 +151,18 @@ class OpenAICompatibleProvider(Provider):
             resp = await self._http.post(self._url(), json=body, headers=headers)
         except httpx.TimeoutException as e:
             raise UpstreamTimeoutError(f"{self._provider_key}: upstream timeout") from e
+        except httpx.RequestError as e:
+            # Connection-level failures: DNS lookup failed, connection
+            # refused, TLS handshake error, broken pipe, etc. None of
+            # these are bugs in the gateway — they're upstream-network
+            # signals. Wrap as a retryable ProviderError so failover +
+            # the circuit breaker can react instead of 500-ing the
+            # client with an uncaught httpx exception.
+            raise ProviderError(
+                f"{self._provider_key}: network error: {e!s}",
+                status=502,
+                retryable=True,
+            ) from e
 
         self._raise_for_status(resp)
 
@@ -174,6 +186,13 @@ class OpenAICompatibleProvider(Provider):
         completion_tokens = 0
         finish_reason: str | None = None
         content_buf: list[str] = []
+        # OpenAI streaming-tools encode each tool call as a series of
+        # deltas indexed by ``tool_calls[].index``. The first delta for
+        # an index typically carries ``id`` + ``function.name``; subsequent
+        # deltas append fragments to ``function.arguments`` (often
+        # character-by-character). We accumulate by index here and emit
+        # the assembled tool_calls on the final chunk.
+        accumulated_tool_calls: dict[int, dict[str, Any]] = {}
 
         try:
             async with self._http.stream("POST", self._url(), json=body, headers=headers) as resp:
@@ -195,6 +214,10 @@ class OpenAICompatibleProvider(Provider):
                                 content_delta=text,
                                 finish_reason=None,
                             )
+                        # Merge any tool_calls fragments into the accumulator.
+                        tc_fragments = delta.get("tool_calls") or []
+                        for frag in tc_fragments:
+                            _merge_tool_call_fragment(accumulated_tool_calls, frag)
                         if choice.get("finish_reason") is not None:
                             finish_reason = choice["finish_reason"]
                     usage = parsed.get("usage")
@@ -203,12 +226,31 @@ class OpenAICompatibleProvider(Provider):
                         completion_tokens = usage.get("completion_tokens", completion_tokens) or 0
         except httpx.TimeoutException as e:
             raise UpstreamTimeoutError(f"{self._provider_key}: upstream timeout") from e
+        except httpx.RequestError as e:
+            # Same network-error hardening as the non-streaming path.
+            # On a streaming POST this fires before any bytes leave
+            # the wire, so wrapping as retryable is safe — failover
+            # can still pick the fallback.
+            raise ProviderError(
+                f"{self._provider_key}: network error: {e!s}",
+                status=502,
+                retryable=True,
+            ) from e
+
+        # Assemble the final tool_calls list (indexed → ordered list).
+        assembled_tool_calls: list[dict[str, Any]] | None = None
+        if accumulated_tool_calls:
+            assembled_tool_calls = [
+                accumulated_tool_calls[i]
+                for i in sorted(accumulated_tool_calls.keys())
+            ]
 
         yield ChatCompletionChunk(
             content_delta="",
-            finish_reason=finish_reason or "stop",
+            finish_reason=finish_reason or ("tool_calls" if assembled_tool_calls else "stop"),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            tool_calls=assembled_tool_calls,
         )
 
     # ---- Helpers --------------------------------------------------------------
@@ -235,7 +277,13 @@ class OpenAICompatibleProvider(Provider):
         if req.temperature is not None:
             body["temperature"] = req.temperature
         if req.tools is not None:
+            # Pass-through: every OpenAI-compatible upstream (Groq, OpenAI,
+            # Together, Fireworks, etc.) accepts the OpenAI tool shape
+            # verbatim. Anthropic native has its own adapter that does
+            # the translation in ``providers/anthropic.py``.
             body["tools"] = req.tools
+        if req.tool_choice is not None:
+            body["tool_choice"] = req.tool_choice
         if req.extra:
             for k, v in req.extra.items():
                 body.setdefault(k, v)
@@ -247,11 +295,16 @@ class OpenAICompatibleProvider(Provider):
         message = (choices[0].get("message") if choices else {}) or {}
         usage = data.get("usage") or {}
         finish = choices[0].get("finish_reason") if choices else None
+        # ``tool_calls`` is already in OpenAI shape coming back from every
+        # OpenAI-compat provider — no translation needed. We surface it
+        # on the chunk so the chat handler can include it in the response.
+        tool_calls = message.get("tool_calls")
         return ChatCompletionChunk(
             content_delta=message.get("content") or "",
             finish_reason=finish,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
+            tool_calls=tool_calls if tool_calls else None,
             raw=data,
         )
 
@@ -285,3 +338,52 @@ class OpenAICompatibleProvider(Provider):
             status=400,
             retryable=False,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Streaming tool_calls accumulator                                            #
+# --------------------------------------------------------------------------- #
+
+
+def _merge_tool_call_fragment(
+    acc: dict[int, dict[str, Any]], frag: dict[str, Any]
+) -> None:
+    """Merge one ``delta.tool_calls[i]`` fragment into the accumulator.
+
+    OpenAI's streaming protocol for tools sends each tool call as a series
+    of deltas keyed by ``index``. The first delta usually carries the
+    ``id`` and ``function.name``; subsequent deltas append to
+    ``function.arguments`` (often character-by-character, sometimes
+    larger chunks). This helper merges idempotently — calling it with
+    any prefix of the deltas produces a partial-but-consistent state,
+    and the final call assembles the complete OpenAI tool_call shape:
+        {"id": ..., "type": "function",
+         "function": {"name": ..., "arguments": <json-string>}}
+    """
+    idx = frag.get("index")
+    if idx is None:
+        # Defensive: a fragment without an index is malformed in the
+        # OpenAI spec but shouldn't crash the stream. Treat as index 0.
+        idx = 0
+
+    if idx not in acc:
+        acc[idx] = {
+            "id": "",
+            "type": "function",
+            "function": {"name": "", "arguments": ""},
+        }
+    entry = acc[idx]
+
+    if frag.get("id"):
+        entry["id"] = frag["id"]
+    if frag.get("type"):
+        entry["type"] = frag["type"]
+
+    func_frag = frag.get("function") or {}
+    if func_frag.get("name"):
+        # Function name typically arrives in a single delta; if multiple
+        # deltas carry it (unusual), the later one wins.
+        entry["function"]["name"] = func_frag["name"]
+    if "arguments" in func_frag and func_frag["arguments"] is not None:
+        # Arguments are the streaming part — append, don't replace.
+        entry["function"]["arguments"] += func_frag["arguments"]

@@ -39,7 +39,7 @@ async def make_cache(settings: Settings) -> Cache:
 
     # Build L1.
     try:
-        redis_client: Redis = from_url(
+        redis_client: Redis[bytes] = from_url(
             settings.redis_url,
             encoding="utf-8",
             decode_responses=False,
@@ -57,18 +57,26 @@ async def make_cache(settings: Settings) -> Cache:
     # Build L2 (semantic). On any failure, fall back to L1-only so a
     # broken Qdrant doesn't take down the gateway.
     try:
-        from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
+        from qdrant_client import AsyncQdrantClient
 
-        from pronaos.cache.embedding import SentenceTransformerEmbedder  # noqa: PLC0415
-        from pronaos.cache.layered import LayeredCache  # noqa: PLC0415
-        from pronaos.cache.semantic import QdrantSemanticCache  # noqa: PLC0415
+        from pronaos.cache.embedding import SentenceTransformerEmbedder
+        from pronaos.cache.layered import LayeredCache
+        from pronaos.cache.semantic import QdrantSemanticCache
 
         embedder = SentenceTransformerEmbedder()
         qdrant = AsyncQdrantClient(
             url=settings.qdrant_url, api_key=settings.qdrant_api_key
         )
+        # ``AsyncQdrantClient`` has a richer signature than our
+        # ``QdrantClientLike`` Protocol declares (kwargs we don't use),
+        # so mypy structurally narrows past it. ``cast`` here is honest
+        # — the runtime class implements every method we need.
+        from typing import cast
+
+        from pronaos.cache.semantic import QdrantClientLike
+
         l2 = QdrantSemanticCache(
-            client=qdrant,
+            client=cast(QdrantClientLike, qdrant),
             embedder=embedder,
             similarity_threshold=settings.semantic_cache_threshold,
         )

@@ -52,7 +52,6 @@ import sys
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
 import httpx
 
@@ -196,7 +195,7 @@ async def one_request(
             },
             timeout=30.0,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return "ERR", time.monotonic() - start, f"network: {e}"
 
     duration = time.monotonic() - start

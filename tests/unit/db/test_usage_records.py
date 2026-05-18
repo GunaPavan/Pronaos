@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from pronaos.db.models import Base, UsageRecord
 
-
 # --------------------------------------------------------------------------- #
 # ORM defaults                                                                #
 # --------------------------------------------------------------------------- #

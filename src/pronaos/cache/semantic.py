@@ -37,6 +37,7 @@ serve traffic when Qdrant is down or slow.
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from typing import Any, Protocol
@@ -110,7 +111,7 @@ class QdrantSemanticCache(Cache):
         gateway this is fine, and Qdrant's own create is idempotent
         anyway (it errors on duplicate, which we swallow)."""
         try:
-            from qdrant_client.models import Distance, VectorParams  # noqa: PLC0415
+            from qdrant_client.models import Distance, VectorParams
 
             collections = await self._client.get_collections()
             existing = {c.name for c in collections.collections}
@@ -146,7 +147,7 @@ class QdrantSemanticCache(Cache):
             return CacheLookup(hit=False)
 
         try:
-            from qdrant_client.models import FieldCondition, Filter, MatchValue  # noqa: PLC0415
+            from qdrant_client.models import FieldCondition, Filter, MatchValue
 
             vectors = await self._embedder.embed([text])
             if not vectors:
@@ -198,7 +199,7 @@ class QdrantSemanticCache(Cache):
             return
 
         try:
-            from qdrant_client.models import PointStruct  # noqa: PLC0415
+            from qdrant_client.models import PointStruct
 
             vectors = await self._embedder.embed([text])
             if not vectors:
@@ -219,10 +220,10 @@ class QdrantSemanticCache(Cache):
             log.warning("cache.semantic.put_failed", error=str(e))
 
     async def aclose(self) -> None:
-        try:
+        # Best-effort teardown; a flaky Qdrant on shutdown shouldn't
+        # block the gateway from stopping cleanly.
+        with contextlib.suppress(Exception):
             await self._client.close()
-        except Exception:  # noqa: BLE001
-            pass
         await self._embedder.aclose()
 
 

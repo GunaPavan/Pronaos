@@ -30,7 +30,6 @@ from pronaos.db.session import create_engine, create_sessionmaker
 from pronaos.main import create_app
 from pronaos.providers.registry import ProviderRegistry
 
-
 # --------------------------------------------------------------------------- #
 # Fixture                                                                     #
 # --------------------------------------------------------------------------- #
@@ -493,6 +492,137 @@ async def test_admin_only_key_cannot_hit_chat_endpoint(admin_setup: AdminSetup) 
     )
     assert r.status_code == 403
     assert "chat:write" in r.text
+
+
+# --------------------------------------------------------------------------- #
+# Per-team guardrail policy admin endpoint (Phase 11)                          #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_get_policy_returns_null_when_no_override(admin_setup: AdminSetup) -> None:
+    """A team with no configured policy returns ``policy: null`` — the
+    contract for "use engine defaults." Distinguishable from a 404
+    (team doesn't exist for this tenant)."""
+    r = await admin_setup.client.get(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["team_id"] == admin_setup.team_a1
+    assert body["policy"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_policy_persists_and_get_returns_it(admin_setup: AdminSetup) -> None:
+    """The happy-path round-trip: PUT a valid policy, GET it back, see
+    the canonical shape. ``disabled_rules`` is sorted on the way in."""
+    r = await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+        json={
+            "disabled_rules": ["pii.ipv4", "pii.email"],
+            "rule_actions": {"injection": "block"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["policy"] == {
+        "disabled_rules": ["pii.email", "pii.ipv4"],  # sorted on persist
+        "rule_actions": {"injection": "block"},
+    }
+
+    # GET reads back the same shape.
+    r2 = await admin_setup.client.get(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+    )
+    assert r2.json()["policy"]["disabled_rules"] == ["pii.email", "pii.ipv4"]
+
+
+@pytest.mark.asyncio
+async def test_put_empty_body_clears_policy(admin_setup: AdminSetup) -> None:
+    """PUT with an empty body is the "reset" path — equivalent to
+    ``pronaos-cli ... --reset`` on the CLI. After clearing, GET
+    returns ``policy: null``."""
+    # First write a non-empty policy so we can verify the clear.
+    await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+        json={"disabled_rules": ["pii.ipv4"]},
+    )
+    # Now clear with empty body.
+    r = await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["policy"] is None
+
+    # And GET confirms the clear stuck.
+    r2 = await admin_setup.client.get(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+    )
+    assert r2.json()["policy"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_policy_rejects_unknown_action(admin_setup: AdminSetup) -> None:
+    """Validation at write-time: an unknown action (``blok`` instead of
+    ``block``) must 422, not silently get dropped by the runtime
+    resolver. The error body lists what went wrong so the caller can
+    fix it without trial-and-error."""
+    r = await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+        json={"rule_actions": {"injection": "blok"}},
+    )
+    assert r.status_code == 422, r.text
+    body = r.json()
+    assert body["detail"]["type"] == "invalid_policy"
+    assert any("blok" in e for e in body["detail"]["errors"])
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_put_returns_404(admin_setup: AdminSetup) -> None:
+    """Critical security invariant: an admin key for tenant B must not
+    be able to PUT a policy onto a team that belongs to tenant A. The
+    response is 404 (not 403) so the endpoint doesn't leak whether the
+    foreign team exists."""
+    # admin_key_b is for tenant B; team_a1 belongs to tenant A.
+    r = await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_b}"},
+        json={"disabled_rules": ["pii.ipv4"]},
+    )
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_chat_only_key_cannot_modify_policy(admin_setup: AdminSetup) -> None:
+    """A ``chat:write`` key without ``admin:usage`` scope must be
+    rejected. Same bidirectional least-privilege rule as the rest of
+    the admin surface."""
+    r = await admin_setup.client.put(
+        f"/v1/admin/team/{admin_setup.team_a1}/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.chat_only_key_a}"},
+        json={"disabled_rules": ["pii.ipv4"]},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_nonexistent_team_returns_404(admin_setup: AdminSetup) -> None:
+    """Same 404 for a genuinely-missing team as for a foreign-tenant
+    team — the two cases are deliberately indistinguishable so an
+    admin can't enumerate team ids by probing."""
+    r = await admin_setup.client.get(
+        "/v1/admin/team/nonexistent-team-id/guardrail-policy",
+        headers={"Authorization": f"Bearer {admin_setup.admin_key_a}"},
+    )
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

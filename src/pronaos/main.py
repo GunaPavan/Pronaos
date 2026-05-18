@@ -21,6 +21,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from pronaos import __version__
 from pronaos.api.v1 import router as v1_router
+from pronaos.audit.logger import AuditLogger
 from pronaos.cache.factory import make_cache
 from pronaos.config import get_settings
 from pronaos.core.quota import QuotaTracker
@@ -28,6 +29,7 @@ from pronaos.core.ratelimit import make_rate_limiter
 from pronaos.core.router import Router
 from pronaos.db.session import create_engine, create_sessionmaker
 from pronaos.errors import install_error_handlers
+from pronaos.guardrails.factory import make_guardrail_engine
 from pronaos.logging import configure_logging, get_logger
 from pronaos.middleware import MetricsMiddleware, RequestContextMiddleware
 from pronaos.observability.metrics import REGISTRY as METRICS_REGISTRY
@@ -57,6 +59,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # prefix-accessible. A later phase may add per-tenant defaults.
     app.state.router = Router(registry, default_provider=None)
 
+    # Phase 15: per-provider circuit breakers. One process-local registry,
+    # lazily populated as providers are first invoked. The failover layer
+    # reads it on every request to skip OPEN providers up front.
+    from pronaos.core.circuit import CircuitBreakerRegistry
+
+    app.state.circuit_registry = CircuitBreakerRegistry()
+
+    # Phase 19: outbound webhook dispatcher. One process-local instance,
+    # shared across requests. Holds the httpx client so we don't pay
+    # TLS handshake cost on every event. Tenants opt in by setting
+    # webhook_url + webhook_secret; the dispatcher is a no-op for
+    # unconfigured tenants.
+    from pronaos.core.webhooks import WebhookDispatcher
+
+    app.state.webhook_dispatcher = WebhookDispatcher()
+
     # Phase 4 quota infrastructure. The rate limiter is in-memory by default
     # and switches to Redis when ``PRONAOS_REDIS_URL`` is set. The quota
     # tracker is stateless — one instance per process.
@@ -69,6 +87,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # exact-only in between.
     cache = await make_cache(settings)
     app.state.cache = cache
+
+    # Phase 8 guardrails. NullEngine when disabled; default rule set
+    # (PII regexes + prompt-injection patterns) when enabled.
+    app.state.guardrails = make_guardrail_engine(settings)
+
+    # Phase 10 audit log. Stateless service — one instance per process.
+    app.state.audit_logger = AuditLogger()
 
     log.info(
         "pronaos.startup",
@@ -133,6 +158,19 @@ def create_app() -> FastAPI:
     # rows, so there's no PII or cost-breakdown leak.
     @app.get("/metrics", include_in_schema=False)
     def metrics() -> Response:  # pragma: no cover — trivial passthrough
+        # Refresh circuit-breaker gauges from the live registry on every
+        # scrape. The breaker is a state machine whose OPEN→HALF_OPEN
+        # transition fires on time, not on a request — without this
+        # pre-scrape sync, the dashboard would still show OPEN for the
+        # 30-second window even after the breaker had silently moved
+        # to HALF_OPEN. Cheap (one dict iteration per scrape).
+        from pronaos.observability.metrics import record_circuit_state
+
+        circuit_registry = getattr(app.state, "circuit_registry", None)
+        if circuit_registry is not None:
+            for provider_name, state in circuit_registry.snapshot().items():
+                record_circuit_state(provider_name, state.value)
+
         return Response(
             content=generate_latest(METRICS_REGISTRY),
             media_type=CONTENT_TYPE_LATEST,

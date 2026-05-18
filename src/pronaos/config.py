@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # match for all-MiniLM-L6-v2. Lower = more hits but more false positives.
     semantic_cache_threshold: float = 0.95
 
+    # Guardrails (Phase 8.1). On by default — REDACT for PII, LOG_ONLY for
+    # prompt injection. Set false to disable for interactive prompt-
+    # engineering workflows where false-positive redactions are a nuisance.
+    guardrails_enabled: bool = True
+
     # Observability
     otel_enabled: bool = True
     otel_exporter_endpoint: str = "http://localhost:4317"

@@ -25,7 +25,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 from pronaos.providers.anthropic import ANTHROPIC_API_URL
 
-
 # --------------------------------------------------------------------------- #
 # Tracer fixture                                                              #
 # --------------------------------------------------------------------------- #

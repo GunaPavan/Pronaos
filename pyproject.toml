@@ -49,6 +49,10 @@ dependencies = [
     # so module load stays fast for callers that never touch semantic.
     "qdrant-client>=1.12",
     "sentence-transformers>=3.0",
+    # Phase 9 — eval harness. PyYAML for human-editable golden-set
+    # fixtures; it's already a transitive dep through several other
+    # packages but pinning it here makes the dependency explicit.
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -92,7 +96,16 @@ select = [
 ignore = ["S101"]  # allow assert in tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "B", "E501"]  # allow long lines in tests (fixture strings, SSE payloads)
+# Tests: assert is fine; long lines tolerated for SSE / fixture strings.
+# C408/F841/RUF059/SIM117/RUF003 are stylistic patterns common in test
+# code (kwargs-via-dict for readability, intentional named locals for
+# self-documenting setup, nested context managers, em-dash/× in comments).
+"tests/**" = ["S", "B", "E501", "C408", "F841", "RUF003", "RUF059", "SIM117"]
+# Scripts are demos / experiments, not production code. Allow the
+# pragmatic patterns (subprocess with partial path, fail-open try/except,
+# blocking pathlib in async, long log lines) without polluting source-tree
+# linting. Keep ``B`` and the obvious bug-bears so demos still get those.
+"scripts/**" = ["S", "ASYNC", "SIM105", "E501", "C408", "UP042", "RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -104,6 +117,13 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+
+# PyYAML has no first-party type stubs and we don't want to pull
+# ``types-PyYAML`` into the runtime deps for one import in the eval
+# loader. The loader's own annotations are explicit enough.
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"

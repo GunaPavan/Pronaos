@@ -300,6 +300,11 @@ async def test_period_rollover_resets_budget(
     body = {
         "model": "groq/llama-3.1-8b-instant",
         "messages": [{"role": "user", "content": "x"}],
+        # Phase 20: set max_tokens explicitly so the preflight estimator
+        # doesn't default to 4096 (which would trip the 100-token budget
+        # even AFTER rollover). This test is about period rollover, not
+        # preflight — keep the two concerns orthogonal.
+        "max_tokens": 10,
     }
     try:
         r = await q.client.post("/v1/chat/completions", headers=headers, json=body)
@@ -458,7 +463,7 @@ async def test_quota_denial_increments_metric(
 
     def value(reason: str) -> float:
         try:
-            return quota_denials_total.labels(reason=reason)._value.get()  # noqa: SLF001
+            return quota_denials_total.labels(reason=reason)._value.get()
         except KeyError:
             return 0.0
 

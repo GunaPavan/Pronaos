@@ -27,7 +27,6 @@ import respx
 from pronaos.observability import metrics as m
 from pronaos.providers.anthropic import ANTHROPIC_API_URL
 
-
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
@@ -40,7 +39,7 @@ def _counter_value(counter: Any, **labels: str) -> float:
     to parse the exposition text. Returns 0.0 when the label combination
     hasn't been observed yet."""
     try:
-        return counter.labels(**labels)._value.get()  # noqa: SLF001
+        return counter.labels(**labels)._value.get()
     except KeyError:
         return 0.0
 

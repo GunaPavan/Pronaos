@@ -26,7 +26,7 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final
+from typing import Any, Final
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -64,6 +64,22 @@ class Principal:
     # authoritative for the running counter regardless.
     rps_limit: int | None = None
     monthly_token_budget: int | None = None
+    # Phase 8.2: per-team guardrail policy override. None = use engine
+    # defaults. JSON shape (raw, validated downstream by the resolver):
+    #   {"disabled_rules": ["pii.ipv4"], "rule_actions": {"injection": "block"}}
+    guardrail_policy: dict[str, Any] | None = None
+    # Phase 17: per-team model allowlist. None = unrestricted; list of
+    # fnmatch-style patterns matched against the request's ``model``.
+    # See ``core/model_access.py`` for the matching helper.
+    allowed_models: list[str] | None = None
+    # Phase 19: per-tenant webhook config. NULL on either field means
+    # webhooks are disabled for this tenant. Pulled from Tenant rather
+    # than Team because operational events (quota exhaustion, breaker
+    # trips, chain breaks) are typically routed to ONE incident
+    # channel per organisation — not per-team. Surfacing on Principal
+    # saves a DB hit in the hot publish-points.
+    webhook_url: str | None = None
+    webhook_secret: str | None = None
 
     def has_scope(self, required: str) -> bool:
         return required in self.scopes
@@ -155,6 +171,10 @@ async def verify_key(session: AsyncSession, raw_key: str) -> Principal | None:
         scopes=frozenset(api_key.scope_list()),
         rps_limit=api_key.rps_limit,
         monthly_token_budget=team.monthly_token_budget,
+        guardrail_policy=team.guardrail_policy,
+        allowed_models=team.allowed_models,
+        webhook_url=tenant.webhook_url,
+        webhook_secret=tenant.webhook_secret,
     )
 
 

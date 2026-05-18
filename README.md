@@ -1,202 +1,266 @@
 # Pronaos
 
-> Self-hosted LLM gateway with **two-tier semantic caching**, multi-tenant cost accounting, automatic failover across 12+ providers, and a Grafana-ready observability stack — behind one OpenAI-compatible API.
+> Self-hosted LLM gateway with **five empirical claims about its own behavior**, every one verified by a reproducible script.
 
-Pronaos sits between your applications and every supported LLM provider, giving you one governed entry point for every AI call. Today it routes across **12+ providers** — Anthropic (native adapter) plus Groq, OpenAI, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, and Ollama (local) via a single OpenAI-compatible adapter — behind one OpenAI-shape API, with multi-tenant authentication and automatic failover on retryable errors.
+Pronaos sits between your applications and 12+ LLM providers (Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, and a hash-chained audit log. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
 
-**The goal:** become the spine production AI teams need — unified API, per-tenant cost and quota management, semantic caching, PII redaction, prompt-injection defense, hash-chained audit logs, end-to-end OpenTelemetry, and CI-gated evaluation. Some of this ships today; the rest is on the [roadmap](ROADMAP.md).
+---
+
+## What this gateway can prove about itself
+
+Five empirical claims, each backed by a script you can run against the live gateway:
+
+| # | Claim | Headline | Reproduce |
+| --- | --- | ---: | --- |
+| 1 | **L1 cache faithfulness** | Δ = **0.0000** across 8 cases; 46% faster wall-clock | `python scripts/eval_cache_quality.py` |
+| 2 | **Semantic cache trades nothing for paraphrase hits** | 12.5% → **87.5%** L2 hit rate as threshold drops; Δ = 0 either way | `python scripts/eval_paraphrase_cache_quality.py` |
+| 3 | **Redaction breaks the model when PII is topically relevant** — and per-tenant policy fixes it | tcp_vs_udp: 1.00 → **0.00** under redaction; → **1.00** after `--disable pii.ipv4` | `python scripts/eval_guardrail_quality.py` |
+| 4 | **9.3× cost premium bought zero quality gain** on this workload | 8B vs Llama-4 Scout: identical 8/8 pass-rate, $0.000050 vs $0.000463 per call | `python scripts/eval_cost_quality.py` |
+| 5 | **Tamper detection works on the live audit log** | `audit verify` exits 0 on intact chain, exits 1 with exact byte diff on tamper | `pronaos-cli audit verify --tenant <id>` |
+
+The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most "I built an LLM gateway" portfolios stop at *"the cache exists."* This one closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
 
 ---
 
 ## See it running
 
-`docker compose up -d && uvicorn pronaos.main:app` brings up the whole stack — gateway, Postgres, Redis, Qdrant, Prometheus, Tempo, and two pre-provisioned Grafana dashboards.
+`docker compose up -d && uvicorn pronaos.main:app` brings the whole stack online — gateway, Postgres, Redis, Qdrant, Prometheus, Grafana, Tempo, OTEL collector — plus two pre-provisioned Grafana dashboards.
 
-### FinOps dashboard — cache effectiveness in real time
+### Visual: the FinOps dashboard during a cache demo
 
 ![FinOps dashboard showing 65.6% cache hit rate over 60 requests](docs/images/grafana-finops.png)
 
-> Captured live after `python scripts/demo_cache.py --runs 60` against the gateway. The Cache hit rate panel (bottom-left) is the moneyshot: **65.6%** of requests served from cache, no upstream provider call. Hit-rate climbs from 0% on a cold start as the L1 (Redis exact-match) and L2 (Qdrant embedding-similarity at 0.95 cosine threshold) tiers warm up. Spend panels show "No data" because the demo used Groq's free-tier `llama-3.1-8b-instant` ($0/Mtok) — they light up immediately on any paid model.
+Captured live during `python scripts/demo_cache.py --runs 60`. The Cache hit rate panel (bottom-left) reads **65.6%** — that fraction of requests was served without ever touching a provider. Spend panels read "No data" because the demo used Groq's free-tier 8B at $0/Mtok; they populate immediately on any paid model.
 
-### Operational dashboard
+### Empirical claim #1 — L1 cache faithfulness
 
-![Operational dashboard showing request rate, latency p50/p95/p99, and per-provider RPS](docs/images/grafana-overview.png)
+[`scripts/eval_cache_quality.py`](scripts/eval_cache_quality.py) clears Redis + Qdrant, runs the eval suite, then re-runs the same suite against the now-warmed cache. If the cache is correct, the second-run scores must equal the first-run scores byte-for-byte.
 
-> Request rate, error rate, HTTP latency percentiles, and provider-level RPS / p95 latency. The spike at 12:50 is the demo run. Quota denials and error rate panels stay flat — no rate-limit hits, no 5xx — which is the boring-is-good state you want from a gateway in steady state.
+```text
+[2/3] fresh run (8 cases, every request → provider)...
+      mean: 1.000  scored: 8/8  wall: 21.8s
+[3/3] cached run (8 cases, expecting L1 hits)...
+      mean: 1.000  scored: 8/8  wall: 11.8s
 
-### Swagger UI — the public API surface
+max |Δ|: 0.0000      cases over ε: 0 / 8
+✅ CLAIM HOLDS: cache preserves quality.
+```
 
-![Swagger UI listing /v1/healthz, /v1/chat/completions, /v1/admin/usage with full request/response schemas](docs/images/swagger-ui.png)
+The 21.8s → 11.8s wall-clock drop (~46% faster) is the cache short-circuiting every provider call. Quality preserved exactly; latency drops measurably.
 
-> Auto-generated from the FastAPI route definitions. Try the chat endpoint interactively at `http://localhost:8080/docs` once the gateway is running.
+### Empirical claim #2 — semantic cache trades nothing for paraphrase hits
 
----
+[`scripts/eval_paraphrase_cache_quality.py`](scripts/eval_paraphrase_cache_quality.py) asks the harder question: when the user re-asks the same intent in *different words*, does the L2 cache serve a cached response, and does that response still score against the rubric?
 
-## Why this exists
+Same eval suite, varying only `PRONAOS_SEMANTIC_CACHE_THRESHOLD`:
 
-A 500-person company using LLMs today typically has:
+| Threshold | L2 hit rate | Max per-case Δ | Verdict |
+| --- | --- | --- | --- |
+| **0.95 (default)** | 12.5% (1/8) | **0.0000** | Conservative: only near-identical paraphrases hit |
+| **0.85** | **87.5%** (7/8) | **0.0000** | Permissive: most paraphrases hit. Quality still preserved. |
 
-- Multiple teams calling providers directly with ad-hoc API keys
-- No unified view of spend, who is spending, or on what
-- PII silently leaving the org in prompts
-- A single-provider outage taking production down
-- No defensible audit trail when legal or compliance ask what the AI said to a customer
-- No way to A/B test model or prompt changes with real traffic
+At threshold 0.85, the gateway returns a single stored response for seven different phrasings of the same intent (e.g. *"What's the average-case time complexity of quicksort?"* and *"What's quicksort's average runtime complexity?"*) and the judge scores all 7 responses identically against the rubric. Both modes preserved quality, so the threshold is a pure hit-rate-vs-false-positive-tolerance dial — **not a hit-rate-vs-quality dial.** That's the headline FinOps result.
 
-Pronaos is being built to collapse all of that into one governed hop.
+### Empirical claim #3 — redaction breaks the model on topically-relevant PII
+
+[`scripts/eval_guardrail_quality.py`](scripts/eval_guardrail_quality.py) injects incidental PII (email, phone, SSN, credit card, IP) into each rubric prompt and runs the eval twice — once clean, once with PII (redacted before reaching the provider). Same rubric grades both.
+
+```text
+case                   clean redact      Δ  redacted rules
+capital_france          1.00   1.00  +0.00  pii.email
+quicksort_avg           1.00   1.00  +0.00  pii.email
+refuse_benign           1.00   1.00  +0.00  pii.credit_card
+refuse_harmful          1.00   1.00  +0.00  pii.email
+simple_arithmetic       1.00   1.00  +0.00  pii.email
+speed_of_light          1.00   1.00  +0.00  pii.phone
+tcp_vs_udp              1.00   0.00  -1.00  pii.ipv4   ⚠
+transformer_summary     1.00   1.00  +0.00  pii.ssn
+```
+
+**Seven of eight cases unaffected.** Incidental PII redacts cleanly. **One case catastrophically fails:** the TCP/UDP question included office IPs as setup context. The model receives:
+
+> Our office IPs are `[REDACTED-IP]` and `[REDACTED-IP]`. Give a one-sentence summary of the main difference between TCP and UDP.
+
+…and replies *"I can't provide information that could be used to identify your office's IP addresses."* It refuses the networking question entirely. **Redaction turned a benign prompt into one the model treats as suspicious.**
+
+#### Mitigation: per-team guardrail policy
+
+`Team.guardrail_policy` is a JSON column resolved at request time. CLI to manage it:
+
+```bash
+pronaos-cli team set-guardrail-policy <team-id> --disable pii.ipv4
+```
+
+After applying that policy and re-running the same experiment:
+
+| | Before policy | After `--disable pii.ipv4` |
+| --- | --- | --- |
+| tcp_vs_udp score | 1.00 → **0.00** ⚠ | **1.00** ✅ |
+| Redacted mean | 0.875 | **1.000** |
+| Max \|Δ\| | 1.0000 | **0.0000** |
+
+**The engineering arc:** built the guardrail → measured it → identified a real failure mode → shipped per-team mitigation → re-verified the regression is gone. Most "we shipped safety" claims stop at step 1.
+
+### Empirical claim #4 — 9.3× cost premium bought zero quality gain
+
+[`scripts/eval_cost_quality.py`](scripts/eval_cost_quality.py) sweeps the same eval suite across multiple candidate models, holding the judge constant (Groq's 70B-versatile, kept out of the candidate list to avoid self-grading). For each model it reads the gateway's authoritative per-call cost and computes **dollars per correct answer**.
+
+| Model | Mean score | Pass rate | $ / call | $ / correct |
+| --- | ---: | ---: | ---: | ---: |
+| `groq/llama-3.1-8b-instant` | 1.000 | 8/8 | $0.000050 | $0.000050 |
+| `groq/meta-llama/llama-4-scout-17b-16e-instruct` | 1.000 | 8/8 | $0.000463 | $0.000463 |
+
+Llama 4 Scout costs **9.3× more per call** than the 8B and delivers **identical quality** on this workload. Defaulting to the "better" model wastes ~89% of the spend with no quality gain. On a workload of one million calls, that's **$413 in pure overpayment.**
+
+Important caveats: 8-case golden set; harder workloads would likely differentiate. The point isn't *"always pick 8B"* — it's *"measure before you default."*
+
+### Empirical claim #5 — hash-chained audit + tamper detection
+
+Every successful chat call writes an `AuditRecord` whose `this_hash` is `sha256(prev_hash | request_id | tenant_id | team_id | key_id | provider | model | ts | request_hash | response_hash)`. Chain is per-tenant; bodies are **not** stored (only their hashes), so the audit log doesn't re-create the PII problem guardrails exist to solve.
+
+```text
+$ pronaos-cli audit verify --tenant 1743243380104bf4839758939077621e
+total records:    4   verified: 4   breaks: 0
+chain intact (4 records verified)
+$ echo $?
+0
+```
+
+Mutate one row's `response_hash` directly in the DB and re-verify:
+
+```text
+total records:    4   verified: 3   breaks: 1
+
+CHAIN BROKEN — first 5 breaks:
+  - record d273f7dd... @ 2026-05-17T12:35:30: hash_mismatch
+      expected: 95cce3a70c1e003f...
+      actual:   be1539ef1509f7d8...
+$ echo $?
+1
+```
+
+The verifier finds the exact row, returns exit code 1, ready to wire into a nightly CI check.
+
+**Plus a real bug the tests caught.** While building this I hit the SQLite tz-drop trap: writer hashed a tz-aware `ts.isoformat()` (`"...+00:00"`), verifier read the value back from SQLite as naive (no suffix), produced a different `.isoformat()`, **100% chain breakage on every record**. Unit tests caught it before any record ever shipped. Fix: `canonical_ts()` normalises to naive UTC on both sides. That round-trip test is in the audit suite.
+
+This is what auditability looks like when it's real: tamper-evident record, exit-code-aware verifier, AND a test suite that catches the round-trip bugs that would silently invalidate every audit claim.
+
+### Operational view + Swagger
+
+![Pronaos Overview Grafana dashboard](docs/images/grafana-overview.png)
+
+Request rate, error rate, HTTP latency p50/p95/p99, per-provider RPS + p95 latency, quota denials by reason, **guardrail hits per minute by rule** (bottom panel). The spike at ~12:50 is the cache demo run.
+
+![Swagger UI listing /v1/healthz, /v1/chat/completions, /v1/admin/usage](docs/images/swagger-ui.png)
+
+Auto-generated from FastAPI route definitions — try the chat endpoint at `http://localhost:8080/docs`.
 
 ---
 
 ## Feature highlights
 
-| Area                     | Capability                                                                     | Status        |
-| ------------------------ | ------------------------------------------------------------------------------ | ------------- |
-| Universal API            | OpenAI-compatible `/v1/chat/completions` with streaming SSE                    | ✅ shipped    |
-| Provider support         | 12+ providers via native Anthropic + generic OpenAI-compat adapter             | ✅ shipped    |
-| Routing & failover       | Prefix-based provider selection; automatic retry across configured chain       | ✅ shipped    |
-| Multi-tenancy            | Tenants, teams, scoped API keys with argon2 hashing                            | ✅ shipped    |
-| Admin CLI                | Tenant / team / key lifecycle via `pronaos-cli`                                | ✅ shipped    |
-| Structured logging       | `request_id` / `tenant_id` / `team_id` / `key_id` bound automatically          | ✅ shipped    |
-| OpenTelemetry            | Instrumentation wired across FastAPI, httpx, SQLAlchemy                        | ✅ shipped    |
-| Persistence              | SQLAlchemy + Alembic; SQLite (dev) and Postgres (prod) from the same code      | ✅ shipped    |
-| Rate limits              | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod), zero-install dev | ✅ shipped    |
-| Token budgets            | Per-team monthly token budget with calendar-month rollover, atomic SQL writes  | ✅ shipped    |
-| Cost accounting          | Per-call audit rows, `GET /v1/admin/usage` with filters, `team chargeback` CLI | ✅ shipped    |
-| FinOps dashboards        | Grafana panels for spend, burn rate, tokens, per-model breakdown               | ✅ shipped    |
-| Prometheus + Grafana     | `/metrics` endpoint, two provisioned dashboards, OTEL collector → Tempo        | ✅ shipped    |
-| Semantic caching         | Two-tier (Redis exact-match + Qdrant embedding-based) with per-tenant isolation| ✅ shipped    |
-| Audit log                | Append-only, hash-chained, tamper-evident record of every call                 | 🔜 roadmap    |
-| Semantic caching         | Embedding-based cache with tenant isolation and configurable TTLs              | 🔜 roadmap    |
-| Guardrails               | PII redaction, prompt-injection defense, policy engine                         | 🔜 roadmap    |
-| Evaluation harness       | Prompt / model regression tests, LLM-as-judge, CI-gated rollouts               | 🔜 roadmap    |
-| Admin UI                 | Next.js dashboard for tenants, keys, usage, traces                             | 🔜 roadmap    |
-| OIDC / SSO               | Keycloak / Auth0 / Azure AD for human and admin access                         | 🔜 roadmap    |
-| Deploy                   | Helm chart + Terraform module for one-command production install               | 🔜 roadmap    |
+| Area | Capability | Status |
+| --- | --- | --- |
+| Universal API | OpenAI-compatible `/v1/chat/completions`, streaming SSE | ✅ shipped |
+| Provider support | 12+ providers via native Anthropic + generic OpenAI-compat adapter | ✅ shipped |
+| Routing & failover | Prefix-based selection; automatic retry across configured chain | ✅ shipped |
+| Multi-tenancy | Tenants, teams, scoped API keys (argon2 hashing); bidirectional least-privilege scopes | ✅ shipped |
+| Rate limits | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod) | ✅ shipped |
+| Token + cost budgets | Per-team monthly limits with calendar-month rollover, atomic SQL writes | ✅ shipped |
+| Cost accounting | Per-call audit rows, `GET /v1/admin/usage` with filters, `team chargeback` CLI | ✅ shipped |
+| Prometheus + Grafana | `/metrics` endpoint, two provisioned dashboards, OTEL → Tempo | ✅ shipped |
+| OpenTelemetry | FastAPI / httpx / SQLAlchemy + named spans for `pronaos.quota.check` and `pronaos.provider.call` | ✅ shipped |
+| Semantic caching | Two-tier (Redis exact-match + Qdrant embedding-based), tenant-isolated by construction | ✅ shipped |
+| Guardrails | PII redaction (5 rules + Luhn) + prompt-injection detection, ingress + egress + streaming-aware | ✅ shipped |
+| Per-team policy | `Team.guardrail_policy` lets ops disable specific rules per tenant | ✅ shipped |
+| Eval harness | LLM-as-judge scorer, YAML golden sets, CLI runner, four bundled experiments | ✅ shipped |
+| Audit log | Per-tenant hash-chained record; `pronaos-cli audit verify` walks the chain | ✅ shipped |
+| Admin CLI | `pronaos-cli` for tenant / team / key / budget / policy / audit lifecycle | ✅ shipped |
+| Admin UI | Next.js dashboard for tenants, keys, usage, traces | 🔜 roadmap |
+| OIDC / SSO | Keycloak / Auth0 / Azure AD for human + admin access | 🔜 roadmap |
+| Deploy | Helm chart + Terraform module for one-command production install | 🔜 roadmap |
 
 ---
 
-## Architecture at a glance
-
-See [`docs/architecture/overview.md`](docs/architecture/overview.md) for the full diagram and deep-dive. At a glance:
+## Architecture
 
 ```
-client app ─► Pronaos ─► [ router ─► guardrails ─► cache ─► provider SDK ]
-                │                                                 │
-                ├─► OTEL collector ─► Tempo / Prometheus / Loki   ├─► OpenAI
-                ├─► Postgres (tenants, keys, quotas, audit)       ├─► Anthropic
-                └─► Redis + vector store (cache, rate limits)     ├─► Bedrock / Gemini / …
+client app ─► Pronaos ─► [ auth ─► quotas ─► guardrails ─► cache ─► router ─► provider ]
+                │                                                              │
+                ├─► OTEL collector ─► Tempo / Prometheus / Grafana             ├─► Anthropic
+                ├─► Postgres (tenants, keys, quotas, usage, audit)             ├─► Groq / OpenAI
+                └─► Redis + Qdrant (L1 cache + L2 semantic cache, rate limits) └─► Bedrock / Gemini / …
 ```
 
-Every request passes through: auth → quota check → policy/guardrail → cache lookup → routing → provider call → response guardrails → audit log → observability export.
+Every request: auth → quota check → ingress guardrails → cache lookup → routing → provider call → egress guardrails → cache write → audit append → observability export. Streaming responses get the same coverage (egress + audit run at stream close).
+
+Deeper deep-dive in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
-## Quickstart (local development)
+## Quickstart
 
-Prerequisites: Python 3.12. Docker is optional (only needed for the full
-observability stack — Grafana, Tempo, Prometheus).
-
-### On Windows (PowerShell)
-
-```powershell
-git clone <your-fork>
-cd pronaos
-Copy-Item .env.example .env
-
-# One-stop task runner — calls into the venv with UTF-8 set, no `make` needed
-.\tasks.cmd install     # creates .venv and installs deps
-.\tasks.cmd db-upgrade  # apply Alembic migrations
-.\tasks.cmd dev         # start the gateway on :8080
-
-# Other handy tasks:
-.\tasks.cmd test        # 230+ unit tests
-.\tasks.cmd ci          # lint + typecheck + tests (everything CI runs)
-.\tasks.cmd demo        # end-to-end demo against real Groq
-.\tasks.cmd             # show all tasks
-```
-
-### On macOS / Linux
+Prerequisites: Python 3.12. Docker is optional (only for the full observability stack).
 
 ```bash
-git clone <your-fork>
-cd pronaos
-cp .env.example .env
+git clone https://github.com/GunaPavan/Pronaos.git
+cd Pronaos
+cp .env.example .env       # or `Copy-Item .env.example .env` on Windows
 
-make install
-make db-upgrade   # or: .venv/bin/python -m pronaos.cli db upgrade
-make dev
+# Cross-platform task runner (Windows: tasks.cmd / macOS+Linux: make):
+./tasks.cmd install        # creates .venv and installs deps   (or: make install)
+./tasks.cmd db-upgrade     # apply Alembic migrations          (or: make db-upgrade)
+./tasks.cmd dev            # start the gateway on :8080        (or: make dev)
+./tasks.cmd test           # 310+ unit tests
 ```
 
-Smoke test:
-
-```bash
-curl -s http://localhost:8080/v1/healthz
-# {"status":"ok","version":"0.1.0"}
-```
+Smoke test: `curl -s http://localhost:8080/v1/healthz` → `{"status":"ok","version":"0.1.0"}`.
 
 ### Full observability stack
 
 ```bash
-docker compose up -d     # Postgres, Redis, Qdrant, Prometheus, Grafana, Tempo, OTEL collector
+docker compose up -d   # Postgres, Redis, Qdrant, Prometheus, Grafana, Tempo, OTEL collector
 ```
 
-Then open **http://localhost:3000** → Dashboards → Pronaos. Two dashboards
-ship: `Pronaos — Overview` (request rate, error rate, latency p50/p95/p99,
-quota denials by reason) and `Pronaos — FinOps` (USD spend, projected
-daily burn, tokens, cache hit rate, spend-by-model). Details in
-[`observability/README.md`](observability/README.md).
+Open **http://localhost:3000** → Dashboards → **Pronaos**. Two dashboards ship: `Overview` (RPS, error rate, p50/p95/p99 latency, quota denials, guardrail hits) and `FinOps` (USD spend, projected daily burn, tokens, cache hit rate). Details in [`observability/README.md`](observability/README.md).
 
-### Watch the cache work
+### Run the demos
 
-After issuing an API key (`pronaos-cli key issue --team <id>`), fire
-synthetic traffic at the gateway and watch the hit rate climb from 0%:
+Mint an API key once (`pronaos-cli key issue --team <team-id>`), then:
 
 ```bash
-python scripts/demo_cache.py --api-key pn_live_... --runs 60
-# total:    60
-# L1 hits:  29  (exact)
-# L2 hits:  2   (semantic paraphrase)
-# misses:   29  (forwarded to provider)
-# hit rate: 51.7%
+python scripts/demo_cache.py --api-key pn_live_... --runs 60          # cache effectiveness
+python scripts/demo_guardrails.py --api-key pn_live_...               # PII redaction + injection
+pronaos-cli eval run -g tests/eval/data/basic.yaml \
+    -c groq/llama-3.1-8b-instant -j groq/llama-3.3-70b-versatile \
+    -k pn_live_...                                                     # eval harness
 ```
 
-Open the FinOps dashboard while it runs — the cache panels move live.
-See [`scripts/README.md`](scripts/README.md) for details and tuning knobs.
+Then the four experiments backing claims #1–#4:
+
+```bash
+python scripts/eval_cache_quality.py          --api-key pn_live_...   # claim #1
+python scripts/eval_paraphrase_cache_quality.py --api-key pn_live_...   # claim #2
+python scripts/eval_guardrail_quality.py      --api-key pn_live_...   # claim #3
+python scripts/eval_cost_quality.py           --api-key pn_live_...   # claim #4
+```
+
+Full details in [`scripts/README.md`](scripts/README.md).
 
 ---
 
-## Project status
+## What's left
 
-**In active development** — currently building out provider integrations and admin UI. See [`ROADMAP.md`](ROADMAP.md) for the full plan and [`PLAN.md`](PLAN.md) for the phase-by-phase execution checklist.
+Active roadmap items (everything else in the table above is shipped):
 
-What works today:
-
-- **Unified OpenAI-compatible API** (`/v1/chat/completions`, streaming SSE)
-- **12+ provider routing** via one generic OpenAI-compat adapter + native Anthropic adapter: Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama (local)
-- **Automatic failover** across a configurable provider chain on retryable errors
-- **Multi-tenant auth**: tenants, teams, scoped API keys with argon2 hashing — bidirectional least-privilege scopes (`chat:write`, `admin:usage`)
-- **Per-team token budgets + per-key RPS limits** — Redis Lua token-bucket in prod, in-memory in dev
-- **Per-call cost accounting**: every successful chat completion writes one `usage_records` row (tenant, team, key, provider, model, tokens, cost, request_id, status)
-- **Admin reporting**: `GET /v1/admin/usage` returns paginated rows + aggregate totals over the same filter — tenant-isolated by default
-- **Chargeback CLI**: `pronaos-cli team chargeback <team-id>` prints monthly spend broken down by model / provider / status
-- **Admin CLI** (`pronaos-cli`) for tenant / team / key / budget / RPS lifecycle
-- **Alembic migrations** working against SQLite (dev) and Postgres (prod) from the same code
-- **Request-scoped structured logging** with `request_id`, `tenant_id`, `team_id`, `key_id` bound automatically
-- **Prometheus `/metrics`** exposing RPS / latency histograms / provider tokens / cost-hcents / quota denials / cache hit rate — see [`observability/README.md`](observability/README.md)
-- **Two Grafana dashboards** (Overview + FinOps) auto-provisioned via `docker compose up`
-- **OpenTelemetry** instrumentation across FastAPI / httpx / SQLAlchemy plus named spans for `pronaos.quota.check` and `pronaos.provider.call`
-- **Two-tier semantic cache** — Redis exact-match (L1) + Qdrant embedding-similarity (L2, sentence-transformers all-MiniLM-L6-v2). Promotion-on-L2-hit, tenant-isolated by construction, fail-open on backend errors
-- **230+ unit tests** + live integration test against real Groq
-- **CI pipeline**: ruff strict, mypy strict, pytest with coverage gate, Docker build, Trivy + gitleaks
-- **Repository hygiene**: pre-commit hooks, editorconfig, dependabot, conventional commits
-
-On the roadmap:
-
-- **Audit log** — append-only, hash-chained, tamper-evident (separate from cost accounting)
-- **Guardrails** — PII redaction, prompt-injection defense, policy engine
-- **Evaluation harness** — LLM-as-judge, CI-gated prompt/model regressions
 - **Admin UI** — Next.js dashboard for tenants, keys, usage, traces
-- **Helm chart + Terraform module** — one-command deploy
+- **Tool / function calling** — uniform tool-use shape across providers
+- **Multi-judge eval** — Anthropic + Groq concurrent grading for inter-judge agreement
+- **Cost-aware routing** — close the loop on claim #4: route by `$/correct` policy
+- **Helm + Terraform** — one-command production deploy
+- **OIDC / SSO** — Keycloak / Auth0 / Azure AD for human access
+
+See [`ROADMAP.md`](ROADMAP.md) and [`PLAN.md`](PLAN.md).
 
 ---
 

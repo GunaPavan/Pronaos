@@ -17,7 +17,6 @@ required, no port collisions. Coverage:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
@@ -25,7 +24,6 @@ import pytest
 
 from pronaos.cache.exact import RedisExactCache, _build_key
 from pronaos.cache.null import NullCache
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

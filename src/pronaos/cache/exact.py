@@ -29,6 +29,7 @@ down — a cache outage is an availability event, not a correctness one.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from typing import Any
@@ -53,7 +54,7 @@ class RedisExactCache(Cache):
 
     def __init__(
         self,
-        redis: Redis,
+        redis: Redis[bytes],
         *,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> None:
@@ -87,10 +88,10 @@ class RedisExactCache(Cache):
         except (json.JSONDecodeError, TypeError) as e:
             # Corrupted entry — drop it so a future write can replace it.
             log.warning("cache.exact.decode_failed", error=str(e))
-            try:
+            # Best-effort cleanup; if Redis itself is unreachable the
+            # corrupted entry will simply expire on its TTL.
+            with contextlib.suppress(Exception):
                 await self._redis.delete(key)
-            except Exception:  # noqa: BLE001 — best effort cleanup
-                pass
             return CacheLookup(hit=False)
 
         return CacheLookup(hit=True, response=response, tier="exact")
@@ -111,10 +112,13 @@ class RedisExactCache(Cache):
             log.warning("cache.exact.put_failed", error=str(e))
 
     async def aclose(self) -> None:
-        try:
-            await self._redis.aclose()
-        except Exception:  # noqa: BLE001
-            pass
+        # aclose is a teardown call; swallow any error so shutdown isn't
+        # blocked by a flaky Redis. ``aclose()`` exists on newer
+        # redis-py but isn't in the stub set yet → fall back to
+        # ``close()`` if the runtime instance doesn't have aclose.
+        with contextlib.suppress(Exception):
+            close = getattr(self._redis, "aclose", None) or self._redis.close
+            await close()
 
 
 # --------------------------------------------------------------------------- #

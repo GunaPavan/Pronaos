@@ -54,8 +54,13 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         base_url="https://api.groq.com/openai/v1",
         settings_attr="groq_api_key",
         pricing={
+            # Currently supported (May 2026):
             "llama-3.3-70b-versatile": Pricing(59_000, 79_000),
             "llama-3.1-8b-instant": Pricing(5_000, 8_000),
+            # Llama 4 family (Maverick + Scout) — public Groq pricing.
+            "meta-llama/llama-4-scout-17b-16e-instruct": Pricing(11_000, 34_000),
+            # Decommissioned in early 2026 — kept for historical migrations
+            # only; Groq will return HTTP 400 for these now.
             "mixtral-8x7b-32768": Pricing(24_000, 24_000),
             "qwen-qwq-32b": Pricing(29_000, 39_000),
         },
