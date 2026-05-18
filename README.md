@@ -2,7 +2,7 @@
 
 > Self-hosted LLM gateway with **seven empirical claims about its own behavior**, every one verified by a reproducible script or live demo.
 
-Pronaos sits between your applications and 12+ LLM providers (Anthropic, OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Azure OpenAI, Ollama) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, hash-chained audit, tool calling (full OpenAI ↔ Anthropic translation), per-provider circuit breakers, signed outbound webhooks, and a pre-flight cost gate. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
+Pronaos sits between your applications and **12 LLM providers** (Anthropic native; OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Ollama via the OpenAI-compat adapter) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, hash-chained audit, tool calling (full OpenAI ↔ Anthropic translation), per-provider circuit breakers, signed outbound webhooks, and a pre-flight cost gate. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
 
 ---
 
@@ -151,7 +151,7 @@ This is what auditability looks like when it's real: tamper-evident record, exit
 
 Every provider has a per-process circuit breaker (`CLOSED` → `OPEN` after 5 consecutive failures → `HALF_OPEN` after 30s → back to `CLOSED` on a successful probe). When `OPEN`, the failover layer skips the provider *entirely* — no upstream call, no connection-refused timeout to wait through.
 
-Live recipe (full walkthrough in [`PLAN.md`](PLAN.md) Phase 15):
+Live recipe:
 
 ```bash
 # 1. Temporarily redirect Groq to a refused-connection black hole
@@ -224,14 +224,14 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | Area | Capability | Status |
 | --- | --- | --- |
 | Universal API | OpenAI-compatible `/v1/chat/completions`, streaming SSE | ✅ shipped |
-| Provider support | 12+ providers via native Anthropic + generic OpenAI-compat adapter | ✅ shipped |
+| Provider support | 12 providers (Anthropic native + 11 via OpenAI-compat adapter) | ✅ shipped |
 | Routing & failover | Prefix-based selection; automatic retry across configured chain | ✅ shipped |
 | **Circuit breaker** | Per-provider CLOSED/OPEN/HALF_OPEN; auto-skip OPEN providers; metrics + Grafana panels | ✅ shipped |
 | **Tool / function calling** | OpenAI schema on input; bidirectional ↔ Anthropic translation (tool defs, `tool_choice`, `tool_use`) | ✅ shipped |
 | **Streaming tools** | SSE `delta.tool_calls` accumulator (single + parallel tools, both adapters) | ✅ shipped |
 | **Tool-result round-trip** | `role:"tool"` + assistant `tool_calls` echo accepted; cache correctly bypasses agent turns | ✅ shipped |
 | **Streaming cancellation** | `CancelledError` propagated; `pronaos_streams_cancelled_total` metric per provider+model | ✅ shipped |
-| Multi-tenancy | Tenants, teams, scoped API keys (argon2 hashing); bidirectional least-privilege scopes | ✅ shipped |
+| Multi-tenancy | Tenants, teams, scoped API keys (argon2 hashing) with least-privilege scopes (`chat:write`, `admin:usage`) | ✅ shipped |
 | Rate limits | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod) | ✅ shipped |
 | Token + cost budgets | Per-team monthly limits with calendar-month rollover, atomic SQL writes | ✅ shipped |
 | **Pre-flight quota gate** | Heuristic token estimator denies over-budget requests BEFORE the upstream call (saves real cost) | ✅ shipped |
@@ -261,7 +261,7 @@ client app ─► Pronaos ─► [ auth ─► allowlist ─► preflight ─►
                 │                                           circuit breaker)   │              │
                 ├─► OTEL collector ─► Tempo / Prometheus / Grafana             │              ├─► Anthropic
                 ├─► Postgres (tenants, keys, quotas, usage, audit, policy)     │              ├─► Groq / OpenAI
-                ├─► Redis + Qdrant (L1 cache + L2 semantic cache, rate limits) │              └─► Bedrock / Gemini / …
+                ├─► Redis + Qdrant (L1 cache + L2 semantic cache, rate limits) │              └─► Groq / OpenAI / DeepSeek / Together / Fireworks / Perplexity / xAI / Cerebras / Mistral / OpenRouter / Ollama (via OpenAI-compat adapter)
                 └─► Webhook dispatcher ─► tenant's incident channel (Slack / PagerDuty / …)
 ```
 
@@ -286,7 +286,7 @@ cp .env.example .env       # or `Copy-Item .env.example .env` on Windows
 ./tasks.cmd install        # creates .venv and installs deps   (or: make install)
 ./tasks.cmd db-upgrade     # apply Alembic migrations          (or: make db-upgrade)
 ./tasks.cmd dev            # start the gateway on :8080        (or: make dev)
-./tasks.cmd test           # 414 unit + 2 integration tests
+./tasks.cmd test           # 414 tests total (412 unit + 2 integration)
 ```
 
 Smoke test: `curl -s http://localhost:8080/v1/healthz` → `{"status":"ok","version":"0.1.0"}`.
@@ -336,7 +336,7 @@ Active roadmap items (everything else in the Feature highlights table is shipped
 - **Helm + Terraform** — one-command production deploy
 - **OIDC / SSO** — Keycloak / Auth0 / Azure AD for human access
 
-See [`ROADMAP.md`](ROADMAP.md) and [`PLAN.md`](PLAN.md).
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system shape and the "what's not built" section.
 
 ---
 
