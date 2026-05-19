@@ -164,6 +164,16 @@ class Team(Base):
         JSON, nullable=True, default=None
     )
 
+    # ---- Routing strategy (Phase 21) ----
+    # Selects how ``model="auto"`` requests are resolved to a concrete
+    # provider/model. One of ``cheapest`` | ``fastest`` | ``balanced``
+    # (the wire format of ``RoutingStrategy``). NULL = no preference;
+    # the gateway falls back to ``cheapest``. Validated by the CLI /
+    # admin endpoint before write — the DB treats it as opaque string.
+    routing_strategy: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default=None
+    )
+
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="teams")
     api_keys: Mapped[list[ApiKey]] = relationship(
         "ApiKey", back_populates="team", cascade="all, delete-orphan"

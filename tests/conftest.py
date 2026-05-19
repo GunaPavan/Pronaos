@@ -102,6 +102,10 @@ async def auth_setup(
     # Force an isolated in-memory SQLite DB for this test.
     monkeypatch.setenv("PRONAOS_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-for-tests")
+    # GROQ key is set so the cost-aware router (Phase 21) can resolve
+    # model="auto" → groq/* in tests. Tests that mock Groq with respx
+    # benefit from this; tests that don't touch Groq are unaffected.
+    monkeypatch.setenv("GROQ_API_KEY", "test-key-for-tests")
     get_settings.cache_clear()
     settings = get_settings()
 

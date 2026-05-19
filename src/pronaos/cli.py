@@ -1143,6 +1143,101 @@ def team_set_allowed_models(
 
 
 # --------------------------------------------------------------------------- #
+# team set-routing-strategy (Phase 21)                                        #
+# --------------------------------------------------------------------------- #
+
+
+@team_app.command("set-routing-strategy")
+def team_set_routing_strategy(
+    id: str,
+    strategy: Annotated[
+        str | None,
+        typer.Option(
+            "--strategy",
+            help=(
+                "Routing strategy applied to model='auto' requests: "
+                "'cheapest' (minimise expected cost), 'fastest' "
+                "(minimise typical p50 latency), or 'balanced' "
+                "(normalised cost+latency)."
+            ),
+        ),
+    ] = None,
+    clear: Annotated[
+        bool,
+        typer.Option(
+            "--clear",
+            help="Clear the strategy (NULL → falls back to 'cheapest').",
+        ),
+    ] = False,
+    show: Annotated[
+        bool,
+        typer.Option("--show", help="Print the current strategy and exit."),
+    ] = False,
+) -> None:
+    """Set the per-team routing strategy for ``model="auto"`` requests.
+
+    When a client sends ``model="auto"``, the gateway picks a concrete
+    provider/model from the team's allowlist using this strategy. NULL
+    column = no preference; the gateway defaults to ``cheapest``.
+
+    Examples
+    --------
+        pronaos-cli team set-routing-strategy <id> --strategy cheapest
+        pronaos-cli team set-routing-strategy <id> --strategy fastest
+        pronaos-cli team set-routing-strategy <id> --strategy balanced
+        pronaos-cli team set-routing-strategy <id> --clear
+        pronaos-cli team set-routing-strategy <id> --show
+    """
+    from pronaos.core.scorer import RoutingStrategy
+
+    async def _do() -> None:
+        engine = create_engine(get_settings())
+        sm = create_sessionmaker(engine)
+        try:
+            async with get_session(sm) as session:
+                team = await session.get(Team, id)
+                if team is None:
+                    typer.echo(f"team not found: {id}", err=True)
+                    raise typer.Exit(code=1)
+
+                if show:
+                    if team.routing_strategy is None:
+                        typer.echo("(unset — defaults to 'cheapest')")
+                    else:
+                        typer.echo(team.routing_strategy)
+                    return
+
+                if clear:
+                    team.routing_strategy = None
+                    typer.echo(f"ok\t{id}\trouting_strategy=unset")
+                    return
+
+                if strategy is None:
+                    typer.echo(
+                        "error: pass --strategy, --clear, or --show",
+                        err=True,
+                    )
+                    raise typer.Exit(code=2)
+
+                try:
+                    parsed = RoutingStrategy(strategy.strip().lower())
+                except ValueError:
+                    typer.echo(
+                        "error: invalid strategy. Expected one of: "
+                        + ", ".join(s.value for s in RoutingStrategy),
+                        err=True,
+                    )
+                    raise typer.Exit(code=2) from None
+
+                team.routing_strategy = parsed.value
+                typer.echo(f"ok\t{id}\trouting_strategy={parsed.value}")
+        finally:
+            await engine.dispose()
+
+    _run(_do())
+
+
+# --------------------------------------------------------------------------- #
 # audit — hash-chained audit log (Phase 10)                                   #
 # --------------------------------------------------------------------------- #
 

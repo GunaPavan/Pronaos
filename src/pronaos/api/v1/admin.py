@@ -353,6 +353,91 @@ async def put_allowed_models(
 
 
 # --------------------------------------------------------------------------- #
+# Routing strategy (Phase 21)                                                 #
+# --------------------------------------------------------------------------- #
+#
+# Per-team strategy for resolving ``model="auto"`` requests. NULL = no
+# preference; the gateway falls back to ``cheapest``. Validated against
+# the RoutingStrategy enum on PUT so bad strings never reach the DB.
+
+
+class RoutingStrategyBody(BaseModel):
+    """PUT body for ``/v1/admin/team/{id}/routing-strategy``.
+
+    ``strategy: null`` clears the column (unset → defaults to ``cheapest``);
+    a string is validated against the ``RoutingStrategy`` enum.
+    """
+
+    strategy: str | None = None
+
+
+class RoutingStrategyResponse(BaseModel):
+    """Current per-team routing strategy; ``null`` ≡ unset (defaults to cheapest)."""
+
+    team_id: str
+    routing_strategy: str | None
+
+
+@router.get(
+    "/team/{team_id}/routing-strategy",
+    response_model=RoutingStrategyResponse,
+)
+async def get_routing_strategy(
+    team_id: str,
+    principal: Annotated[Principal, Depends(require_scope("admin:usage"))],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> RoutingStrategyResponse:
+    """Read a team's current routing strategy.
+
+    Returns ``routing_strategy: null`` when no strategy is set; the
+    gateway will treat that as ``cheapest`` for auto-routed requests.
+    Same tenant-isolation behaviour as the allowlist endpoint.
+    """
+    team = await _load_team_for_caller(session, team_id, principal)
+    return RoutingStrategyResponse(
+        team_id=team.id, routing_strategy=team.routing_strategy
+    )
+
+
+@router.put(
+    "/team/{team_id}/routing-strategy",
+    response_model=RoutingStrategyResponse,
+)
+async def put_routing_strategy(
+    team_id: str,
+    body: RoutingStrategyBody,
+    principal: Annotated[Principal, Depends(require_scope("admin:usage"))],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> RoutingStrategyResponse:
+    """Replace the team's routing strategy.
+
+    Validated against the ``RoutingStrategy`` enum. Invalid input → 422.
+    PUT semantics: each call replaces the value wholesale.
+    """
+    from pronaos.core.scorer import RoutingStrategy
+
+    raw = body.strategy
+    if raw is not None:
+        try:
+            raw = RoutingStrategy(raw.strip().lower()).value
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "type": "invalid_routing_strategy",
+                    "error": (
+                        "strategy must be one of: "
+                        + ", ".join(s.value for s in RoutingStrategy)
+                    ),
+                },
+            ) from None
+
+    team = await _load_team_for_caller(session, team_id, principal)
+    team.routing_strategy = raw
+    return RoutingStrategyResponse(team_id=team.id, routing_strategy=raw)
+
+
+# --------------------------------------------------------------------------- #
 # Tenant webhook config (Phase 19)                                            #
 # --------------------------------------------------------------------------- #
 #

@@ -208,6 +208,24 @@ preflight_denials_total = Counter(
 
 
 # --------------------------------------------------------------------------- #
+# Cost-aware routing (Phase 21)                                               #
+# --------------------------------------------------------------------------- #
+# Tracks every ``model="auto"`` resolution: which strategy picked which
+# concrete model. ``selected_model`` is the full ``provider/model`` form
+# so dashboards can answer "what does cheapest pick most often?" Cardinality
+# is bounded by the catalog * strategies (~3 * ~25 = 75 series tops).
+
+routing_decisions_total = Counter(
+    "pronaos_routing_decisions_total",
+    "Auto-routing decisions made when a client sent model='auto'. "
+    "``strategy`` is the team's routing_strategy; ``selected_model`` is "
+    "the concrete provider/model the scorer picked.",
+    labelnames=("strategy", "selected_model"),
+    registry=REGISTRY,
+)
+
+
+# --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
 
@@ -321,6 +339,15 @@ def record_preflight_denial(reason: str) -> None:
     preflight_denials_total.labels(reason=reason).inc()
 
 
+def record_routing_decision(*, strategy: str, selected_model: str) -> None:
+    """Bump the auto-routing decision counter. Called by the chat
+    handler when ``model="auto"`` resolves to a concrete provider/model
+    via the cost-aware scorer."""
+    routing_decisions_total.labels(
+        strategy=strategy, selected_model=selected_model
+    ).inc()
+
+
 __all__ = [
     "REGISTRY",
     "cache_lookups_total",
@@ -345,6 +372,8 @@ __all__ = [
     "record_provider_error",
     "record_provider_success",
     "record_quota_denial",
+    "record_routing_decision",
     "record_stream_cancelled",
+    "routing_decisions_total",
     "streams_cancelled_total",
 ]

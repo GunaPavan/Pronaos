@@ -36,7 +36,13 @@ from pronaos.core.failover import execute_with_failover
 from pronaos.core.model_access import is_model_allowed
 from pronaos.core.quota import CompletedCall, QuotaTracker
 from pronaos.core.router import Router
-from pronaos.core.token_estimator import estimate_tokens
+from pronaos.core.scorer import (
+    NoEligibleModelError,
+    RoutingRequest,
+    RoutingStrategy,
+    select_model,
+)
+from pronaos.core.token_estimator import DEFAULT_MAX_COMPLETION, estimate_tokens
 from pronaos.core.webhooks import (
     WebhookConfig,
     WebhookDispatcher,
@@ -55,6 +61,7 @@ from pronaos.observability.metrics import (
     record_preflight_denial,
     record_provider_error,
     record_provider_success,
+    record_routing_decision,
     record_stream_cancelled,
 )
 from pronaos.observability.otel import get_tracer
@@ -201,6 +208,87 @@ async def chat_completions(
         CircuitBreakerRegistry, Depends(get_circuit_registry)
     ],
 ) -> Any:
+    # ---- Cost-aware auto-routing (Phase 21) ----------------------------
+    # ``model="auto"`` is a sentinel that asks the gateway to pick the
+    # cheapest (or fastest, or balanced) eligible model from the team's
+    # allowlist that can satisfy the request. The scorer enforces the
+    # allowlist *internally* via the candidate pool — so we don't need
+    # to run the explicit allowlist gate below for an "auto" request.
+    #
+    # Resolution runs BEFORE the allowlist gate, BEFORE preflight, BEFORE
+    # guardrails — because the picked model is what the rest of the
+    # pipeline must use. Once resolved, ``body.model`` is rewritten to
+    # the concrete fqmn and the request proceeds normally.
+    if body.model == "auto":
+        # Estimate tokens once for the scorer (used again by preflight
+        # below — same heuristic, same numbers).
+        estimated_total = estimate_tokens(
+            [m.model_dump(exclude_none=True) for m in body.messages],
+            max_completion_tokens=body.max_tokens,
+        )
+        estimated_output = body.max_tokens or DEFAULT_MAX_COMPLETION
+        estimated_input = max(0, estimated_total - estimated_output)
+        # Resolve strategy: explicit team setting wins, else cheapest.
+        raw_strategy = principal.routing_strategy or RoutingStrategy.CHEAPEST.value
+        try:
+            strategy = RoutingStrategy(raw_strategy)
+        except ValueError:
+            # Stored value isn't recognised (older write, manual DB edit).
+            # Fall back to cheapest rather than 500ing — operationally
+            # safer to over-route to a cheap model than to fail.
+            strategy = RoutingStrategy.CHEAPEST
+        routing_req = RoutingRequest(
+            estimated_input_tokens=estimated_input,
+            estimated_output_tokens=estimated_output,
+            requires_tools=body.tools is not None and len(body.tools) > 0,
+            requires_streaming=body.stream,
+        )
+        try:
+            selected = select_model(
+                strategy=strategy,
+                allowed_patterns=principal.allowed_models,
+                request=routing_req,
+            )
+        except NoEligibleModelError as e:
+            log.info(
+                "routing.no_eligible_model",
+                strategy=strategy.value,
+                tenant=principal.tenant_name,
+                team=principal.team_name,
+                allowed_models=principal.allowed_models,
+                reason=str(e),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "type": "no_eligible_model",
+                    "message": (
+                        "no model in this team's allowlist can satisfy the "
+                        "request's requirements; either widen the allowlist "
+                        "or send a concrete provider/model instead of 'auto'"
+                    ),
+                    "strategy": strategy.value,
+                },
+            ) from e
+        log.info(
+            "routing.selected",
+            strategy=strategy.value,
+            selected_model=selected.fqmn,
+            estimated_input_tokens=estimated_input,
+            estimated_output_tokens=estimated_output,
+            tenant=principal.tenant_name,
+            team=principal.team_name,
+        )
+        record_routing_decision(
+            strategy=strategy.value, selected_model=selected.fqmn
+        )
+        # Rewrite body.model so the rest of the pipeline sees the
+        # concrete model. Surface the decision in response headers so
+        # clients can see what the gateway picked without parsing logs.
+        body.model = selected.fqmn
+        response.headers["X-Pronaos-Routed-Model"] = selected.fqmn
+        response.headers["X-Pronaos-Routing-Strategy"] = strategy.value
+
     # ---- Model allowlist gate (Phase 17) -------------------------------
     # Enforced FIRST — before guardrails, cache, quota deduction, etc.
     # The pattern: cheap denials happen before any expensive work, both
@@ -208,6 +296,9 @@ async def chat_completions(
     # like "guardrails fired but model was denied anyway"). A 403 here
     # also doesn't count against the rate-limit budget downstream,
     # consistent with "this request never had a chance."
+    # For auto-routed requests the scorer already enforced the allowlist
+    # at candidate-selection time; this gate is a defense-in-depth check
+    # that the rewritten body.model is still in the policy.
     if not is_model_allowed(body.model, principal.allowed_models):
         log.info(
             "model.denied",

@@ -1,14 +1,14 @@
 # Pronaos
 
-> Self-hosted LLM gateway with **seven empirical claims about its own behavior**, every one verified by a reproducible script or live demo.
+> Self-hosted LLM gateway with **eight empirical claims about its own behavior**, every one verified by a reproducible script or live demo.
 
-Pronaos sits between your applications and **12 LLM providers** (Anthropic native; OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Ollama via the OpenAI-compat adapter) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, hash-chained audit, tool calling (full OpenAI ↔ Anthropic translation), per-provider circuit breakers, signed outbound webhooks, and a pre-flight cost gate. **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
+Pronaos sits between your applications and **12 LLM providers** (Anthropic native; OpenAI, Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras, Mistral, OpenRouter, Ollama via the OpenAI-compat adapter) behind one OpenAI-compatible API — with multi-tenant auth, cost accounting, semantic caching, PII redaction, hash-chained audit, tool calling (full OpenAI ↔ Anthropic translation), per-provider circuit breakers, signed outbound webhooks, a pre-flight cost gate, and **cost-aware auto-routing** (`model="auto"` picks the cheapest eligible model per team policy). **The unusual part:** it ships with experiments that *measure* each of those features against a real model and a real judge, and prints the numbers.
 
 ---
 
 ## What this gateway can prove about itself
 
-Seven empirical claims, each backed by a script or a live demo you can reproduce against the running gateway:
+Eight empirical claims, each backed by a script or a live demo you can reproduce against the running gateway:
 
 | # | Claim | Headline | Reproduce |
 | --- | --- | ---: | --- |
@@ -19,6 +19,7 @@ Seven empirical claims, each backed by a script or a live demo you can reproduce
 | 5 | **Tamper detection works on the live audit log** | `audit verify` exits 0 on intact chain, exits 1 with exact byte diff on tamper | `pronaos-cli audit verify --tenant <id>` |
 | 6 | **Circuit breaker routes around a degraded provider** | Streaming call against an OPEN breaker: **0.33 s vs 8.8 s** when CLOSED — **26.7× speedup**, zero upstream tokens consumed | [Live demo recipe](#empirical-claim-6--circuit-breaker-routes-around-a-degraded-provider) |
 | 7 | **Pre-flight token estimator saves the upstream call** on requests that would deny anyway | 1011-token estimate vs 50-token budget → **HTTP 429 with `X-Pronaos-Preflight-Estimate: 1011` header BEFORE Groq is touched** | [Live demo recipe](#empirical-claim-7--pre-flight-token-estimator-saves-the-upstream-call) |
+| 8 | **Cost-aware auto-routing cuts spend ~95% at zero quality cost** on this workload | `model="auto"` → cheapest eligible: **8/8 pass-rate held**, 77 hcents → 4 hcents (**94.8% reduction**, Δ score = 0.000) | `python scripts/eval_cost_routing.py` |
 
 The full write-ups with terminal output, screenshots, and methodology live in [**See it running**](#see-it-running) below. Most LLM-gateway documentation stops at *"the cache exists."* Pronaos closes the loop: built it → measured it → found a real failure (claim #3) → shipped per-team mitigation → re-verified the regression is gone. That's the **engineering arc** the rest of the README documents.
 
@@ -207,6 +208,42 @@ pronaos-cli team usage <team-id>
 
 Same prompt with `max_tokens: 5` (well inside the 50-token budget) returns 200 OK and `tokens used: 41`. The estimator is calibrated within **±15%** of Groq's actual tokenizer on representative English samples — the right tolerance for a budget guardrail. It does NOT claim billing-oracle precision; the post-flight quota check still enforces the real cost from the provider's returned `usage` block.
 
+### Empirical claim #8 — cost-aware auto-routing cuts spend ~95% at zero quality cost
+
+When a client sends `model="auto"`, Pronaos picks a concrete `provider/model` from the team's allowlist using the configured routing strategy (`cheapest` | `fastest` | `balanced`). The pre-flight token estimator from claim #7 feeds the scorer; the cheapest eligible model that satisfies the request's capability requirements wins.
+
+[`scripts/eval_cost_routing.py`](scripts/eval_cost_routing.py) runs the basic 8-case golden set twice through the same gateway against Groq: once pinned to `llama-3.3-70b-versatile` (the team's expensive default), once with `model="auto"` (resolved to `llama-3.1-8b-instant`, the cheapest groq/* entry in the catalog).
+
+```text
+[manual] running 8 cases with model='groq/llama-3.3-70b-versatile'
+  [ 1/8] capital_france            score=1.00 cost=2hcents
+  ...
+  [ 8/8] refuse_harmful            score=1.00 cost=4hcents
+
+[auto] running 8 cases with model='auto'
+  [ 1/8] capital_france            score=1.00 cost=0hcents model=groq/llama-3.1-8b-instant
+  ...
+  [ 8/8] refuse_harmful            score=1.00 cost=0hcents model=groq/llama-3.1-8b-instant
+
+mode         scored   pass-rate    mean      total cost
+manual            8     100.0%   1.000  $0.007700 (77hcents)
+auto              8     100.0%   1.000  $0.000400 (4hcents)
+
+cost reduction: +94.8%
+quality delta:  +0.000 (auto - manual)
+✅ VERDICT: claim holds — cost-aware routing saves money at acceptable quality.
+```
+
+The picked model is surfaced live in response headers so clients can audit each decision:
+
+```text
+HTTP/1.1 200 OK
+x-pronaos-routed-model: groq/llama-3.1-8b-instant
+x-pronaos-routing-strategy: cheapest
+```
+
+The headline isn't "cheap model is good enough" — that depends on workload. The headline is **the gateway demonstrably picks the right tier for the job**, and the team operator picked the strategy (`cheapest` vs `fastest` vs `balanced`) once, then never thinks about model selection again. For workloads where the cheap tier *isn't* good enough, the same script falsifies the claim and prints a non-zero exit code.
+
 ### Operational view + Swagger
 
 ![Pronaos Overview Grafana dashboard](docs/images/grafana-overview.png)
@@ -235,6 +272,7 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | Rate limits | Per-key RPS token bucket — in-memory (dev) / Redis Lua (prod) | ✅ shipped |
 | Token + cost budgets | Per-team monthly limits with calendar-month rollover, atomic SQL writes | ✅ shipped |
 | **Pre-flight quota gate** | Heuristic token estimator denies over-budget requests BEFORE the upstream call (saves real cost) | ✅ shipped |
+| **Cost-aware auto-routing** | `model="auto"` resolves to cheapest / fastest / balanced eligible model per team policy; capability-filtered (tools, vision, context) | ✅ shipped |
 | **Per-team model allowlist** | fnmatch patterns; NULL = unrestricted, `[]` = paused-deny-all; CLI + admin API | ✅ shipped |
 | Cost accounting | Per-call audit rows, `GET /v1/admin/usage` with filters, `team chargeback` CLI | ✅ shipped |
 | Prometheus + Grafana | `/metrics` endpoint, two provisioned dashboards (11 panels), OTEL → Tempo | ✅ shipped |
@@ -243,7 +281,7 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | Semantic caching | Two-tier (Redis exact-match + Qdrant embedding-based), tenant-isolated by construction | ✅ shipped |
 | Guardrails | PII redaction (5 rules + Luhn) + prompt-injection detection, ingress + egress + streaming-aware | ✅ shipped |
 | Per-team policy | `Team.guardrail_policy` lets ops disable specific rules per tenant; admin API + CLI | ✅ shipped |
-| Eval harness | LLM-as-judge scorer, YAML golden sets, CLI runner, **four bundled experiments** | ✅ shipped |
+| Eval harness | LLM-as-judge scorer, YAML golden sets, CLI runner, **five bundled experiments** | ✅ shipped |
 | Audit log | Per-tenant hash-chained record; `pronaos-cli audit verify` walks the chain | ✅ shipped |
 | Admin CLI | `pronaos-cli` for tenant / team / key / budget / policy / allowlist / webhook / audit | ✅ shipped |
 | Admin UI | Next.js dashboard for tenants, keys, usage, traces | 🔜 roadmap |
@@ -286,7 +324,7 @@ cp .env.example .env       # or `Copy-Item .env.example .env` on Windows
 ./tasks.cmd install        # creates .venv and installs deps   (or: make install)
 ./tasks.cmd db-upgrade     # apply Alembic migrations          (or: make db-upgrade)
 ./tasks.cmd dev            # start the gateway on :8080        (or: make dev)
-./tasks.cmd test           # 414 tests total (412 unit + 2 integration)
+./tasks.cmd test           # 443 tests total (441 unit + 2 integration)
 ```
 
 Smoke test: `curl -s http://localhost:8080/v1/healthz` → `{"status":"ok","version":"0.1.0"}`.

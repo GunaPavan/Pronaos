@@ -80,6 +80,10 @@ class Principal:
     # saves a DB hit in the hot publish-points.
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    # Phase 21: per-team routing strategy for ``model="auto"`` requests.
+    # One of ``cheapest`` | ``fastest`` | ``balanced``. NULL = no
+    # preference; the gateway falls back to ``cheapest``.
+    routing_strategy: str | None = None
 
     def has_scope(self, required: str) -> bool:
         return required in self.scopes
@@ -175,6 +179,7 @@ async def verify_key(session: AsyncSession, raw_key: str) -> Principal | None:
         allowed_models=team.allowed_models,
         webhook_url=tenant.webhook_url,
         webhook_secret=tenant.webhook_secret,
+        routing_strategy=team.routing_strategy,
     )
 
 

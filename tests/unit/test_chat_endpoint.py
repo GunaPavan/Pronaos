@@ -379,3 +379,149 @@ async def test_preflight_skipped_for_unlimited_team(
     )
     assert resp.status_code == 200
     assert anthropic_route.call_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Phase 21: cost-aware auto-routing                                           #
+# --------------------------------------------------------------------------- #
+
+
+_GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def _groq_response(text: str = "auto-routed reply") -> dict:
+    """OpenAI-compat chat completion response shape that Groq returns."""
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": "llama-3.1-8b-instant",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+    }
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_auto_routing_picks_cheapest_groq_model(auth_setup) -> None:  # type: ignore[no-untyped-def]
+    """model='auto' with allowed=['groq/*'] and strategy=cheapest must
+    resolve to ``groq/llama-3.1-8b-instant`` (the lowest-cost Groq entry
+    in the catalog). The X-Pronaos-Routed-Model header surfaces the
+    decision so clients can see what the gateway picked."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (await session.execute(
+            select(Team).where(Team.id == auth_setup.team_id)
+        )).scalar_one()
+        team.allowed_models = ["groq/*"]
+        team.routing_strategy = "cheapest"
+        await session.commit()
+
+    groq_route = respx.post(_GROQ_CHAT_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response("ok"))
+    )
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 50,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["X-Pronaos-Routed-Model"] == "groq/llama-3.1-8b-instant"
+    assert resp.headers["X-Pronaos-Routing-Strategy"] == "cheapest"
+    # Confirm the upstream call actually happened to the resolved model.
+    assert groq_route.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_auto_routing_with_no_eligible_model_returns_422(auth_setup) -> None:  # type: ignore[no-untyped-def]
+    """An empty allowlist (deny-all) combined with model='auto' must
+    short-circuit to 422 with a clear ``no_eligible_model`` error.
+    No upstream provider must be contacted."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (await session.execute(
+            select(Team).where(Team.id == auth_setup.team_id)
+        )).scalar_one()
+        team.allowed_models = []  # explicit deny-all
+        await session.commit()
+
+    # Mock to detect if any upstream was reached anyway.
+    groq_route = respx.post(_GROQ_CHAT_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response("should not be reached"))
+    )
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["type"] == "no_eligible_model"
+    assert groq_route.call_count == 0
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_auto_routing_defaults_to_cheapest_when_strategy_unset(  # type: ignore[no-untyped-def]
+    auth_setup,
+) -> None:
+    """A team with NULL routing_strategy must default to 'cheapest'
+    when an auto-routed request arrives. This is the backwards-compat
+    path for teams provisioned before Phase 21."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (await session.execute(
+            select(Team).where(Team.id == auth_setup.team_id)
+        )).scalar_one()
+        team.allowed_models = ["groq/*"]
+        # Deliberately leave routing_strategy = NULL.
+        await session.commit()
+
+    respx.post(_GROQ_CHAT_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response("ok"))
+    )
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 50,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["X-Pronaos-Routing-Strategy"] == "cheapest"
+    # Cheapest groq model is the 8b-instant.
+    assert resp.headers["X-Pronaos-Routed-Model"] == "groq/llama-3.1-8b-instant"
