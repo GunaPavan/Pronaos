@@ -74,9 +74,7 @@ class TestPromptCacheStat:
 
 class TestPromptCacheObserverRecordAndSnapshot:
     @pytest.mark.asyncio
-    async def test_single_record_visible_in_snapshot(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_single_record_visible_in_snapshot(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",
@@ -94,9 +92,7 @@ class TestPromptCacheObserverRecordAndSnapshot:
         assert stat.hit_rate == pytest.approx(400 / 500)
 
     @pytest.mark.asyncio
-    async def test_multiple_records_aggregate(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_multiple_records_aggregate(self, observer: PromptCacheObserver) -> None:
         for _ in range(5):
             await observer.record(
                 team_id="t1",
@@ -113,9 +109,7 @@ class TestPromptCacheObserverRecordAndSnapshot:
         assert stat.saved_hcents == 1800
 
     @pytest.mark.asyncio
-    async def test_multiple_fqmns_per_team(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_multiple_fqmns_per_team(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",
@@ -145,9 +139,7 @@ class TestPromptCacheObserverRecordAndSnapshot:
         assert snap["groq/llama-3.1-8b-instant"].hit_rate == pytest.approx(0.0)
 
     @pytest.mark.asyncio
-    async def test_teams_namespaced_independently(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_teams_namespaced_independently(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",
@@ -166,16 +158,12 @@ class TestPromptCacheObserverRecordAndSnapshot:
         assert set(snap_t2.keys()) == {"openai/gpt-4o"}
 
     @pytest.mark.asyncio
-    async def test_empty_snapshot_when_unknown_team(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_empty_snapshot_when_unknown_team(self, observer: PromptCacheObserver) -> None:
         snap = await observer.snapshot("nonexistent")
         assert snap == {}
 
     @pytest.mark.asyncio
-    async def test_record_with_fqmn_containing_slashes(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_record_with_fqmn_containing_slashes(self, observer: PromptCacheObserver) -> None:
         """fqmns like 'groq/meta-llama/llama-4-scout' have multiple slashes —
         the field-name separator must use ':' not '/' so they roundtrip
         cleanly through Redis."""
@@ -214,9 +202,7 @@ class TestPromptCacheObserverFailOpen:
         assert snap == {}
 
     @pytest.mark.asyncio
-    async def test_record_with_zero_tokens_is_noop(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_record_with_zero_tokens_is_noop(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",
@@ -230,9 +216,7 @@ class TestPromptCacheObserverFailOpen:
 
 class TestPromptCacheObserverReset:
     @pytest.mark.asyncio
-    async def test_reset_wipes_team_state(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_reset_wipes_team_state(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",
@@ -244,9 +228,7 @@ class TestPromptCacheObserverReset:
         assert (await observer.snapshot("t1")) == {}
 
     @pytest.mark.asyncio
-    async def test_reset_does_not_affect_other_teams(
-        self, observer: PromptCacheObserver
-    ) -> None:
+    async def test_reset_does_not_affect_other_teams(self, observer: PromptCacheObserver) -> None:
         await observer.record(
             team_id="t1",
             fqmn="anthropic/claude-sonnet-4-5",

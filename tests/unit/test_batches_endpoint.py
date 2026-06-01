@@ -55,9 +55,7 @@ async def test_batches_disabled_by_default(auth_setup) -> None:  # type: ignore[
 
 @pytest.mark.asyncio
 async def test_get_batch_disabled_for_unenabled_team(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    resp = await auth_setup.client.get(
-        "/v1/batches/some_id", headers=_auth(auth_setup.api_key)
-    )
+    resp = await auth_setup.client.get("/v1/batches/some_id", headers=_auth(auth_setup.api_key))
     assert resp.status_code == 422
     assert resp.json()["detail"]["type"] == "batches_disabled"
 
@@ -269,9 +267,7 @@ async def test_get_batch_returns_seeded_row(auth_setup) -> None:  # type: ignore
         status="in_progress",
     )
 
-    resp = await auth_setup.client.get(
-        f"/v1/batches/{bid}", headers=_auth(auth_setup.api_key)
-    )
+    resp = await auth_setup.client.get(f"/v1/batches/{bid}", headers=_auth(auth_setup.api_key))
     assert resp.status_code == 200
     body = resp.json()
     assert body["id"] == bid
@@ -299,9 +295,7 @@ async def test_get_batch_404_for_other_team(auth_setup) -> None:  # type: ignore
         team_id="other-team",
         status="in_progress",
     )
-    resp = await auth_setup.client.get(
-        f"/v1/batches/{bid}", headers=_auth(auth_setup.api_key)
-    )
+    resp = await auth_setup.client.get(f"/v1/batches/{bid}", headers=_auth(auth_setup.api_key))
     assert resp.status_code == 404
 
 
@@ -374,12 +368,8 @@ async def test_cancel_in_flight_calls_provider(  # type: ignore[no-untyped-def]
         team_id=auth_setup.team_id,
         status="in_progress",
     )
-    cancel_route = respx.post(
-        "https://api.openai.com/v1/batches/batch_xyz/cancel"
-    ).mock(
-        return_value=httpx.Response(
-            200, json={"id": "batch_xyz", "status": "cancelling"}
-        )
+    cancel_route = respx.post("https://api.openai.com/v1/batches/batch_xyz/cancel").mock(
+        return_value=httpx.Response(200, json={"id": "batch_xyz", "status": "cancelling"})
     )
     resp = await auth_setup.client.post(
         f"/v1/batches/{bid}/cancel", headers=_auth(auth_setup.api_key)

@@ -740,8 +740,8 @@ schema_validation_total = Counter(
     "``failed`` (exhausted ``structured_output_max_retries``; the "
     "response is still returned to the client with the failed header). "
     "``model`` lets dashboards aggregate by underlying model — useful "
-    "for routing decisions (\"which model has the lowest schema "
-    "violation rate on our workloads\").",
+    'for routing decisions ("which model has the lowest schema '
+    'violation rate on our workloads").',
     labelnames=("result", "model"),
     registry=REGISTRY,
 )
@@ -1027,9 +1027,7 @@ def record_tool_result_cache(*, tool_name: str, result: str) -> None:
     tool_result_cache_total.labels(tool_name=tool_name, result=result).inc()
 
 
-def record_mcp_federated_tool_call(
-    *, server: str, tool: str, result: str
-) -> None:
+def record_mcp_federated_tool_call(*, server: str, tool: str, result: str) -> None:
     """Bump the federated tool-call counter (Phase 54).
 
     Called once per ``tool_call`` the gateway dispatched to a federated
@@ -1038,9 +1036,7 @@ def record_mcp_federated_tool_call(
     isError=True), or ``federation_error`` (server unreachable / raised
     / not registered).
     """
-    mcp_federated_tool_calls_total.labels(
-        server=server, tool=tool, result=result
-    ).inc()
+    mcp_federated_tool_calls_total.labels(server=server, tool=tool, result=result).inc()
 
 
 def record_mcp_streaming_federation_session(*, result: str) -> None:
@@ -1109,9 +1105,7 @@ def record_quality_degradation(*, model: str, action: str) -> None:
     quality_degradations_total.labels(model=model, action=action).inc()
 
 
-def record_image_input(
-    *, provider: str, model: str, count: int = 1, bytes_total: int = 0
-) -> None:
+def record_image_input(*, provider: str, model: str, count: int = 1, bytes_total: int = 0) -> None:
     """Bump the image-input counters (Phase 41).
 
     Called after a successful request that contained image parts.
@@ -1234,9 +1228,7 @@ def record_reasoning_tokens(
     """
     if tokens <= 0:
         return
-    reasoning_tokens_total.labels(
-        provider=provider, model=model, source=source
-    ).inc(tokens)
+    reasoning_tokens_total.labels(provider=provider, model=model, source=source).inc(tokens)
 
 
 __all__ = [

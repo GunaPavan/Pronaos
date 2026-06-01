@@ -275,9 +275,7 @@ class TestEstimateImageTokens:
     def test_url_only_uses_fallback(self) -> None:
         """An HTTPS URL with no measurable bytes falls back to the
         conservative max-estimate token count."""
-        part = ImagePart(
-            url="https://example.com/x.png", media_type="image/png", base64_bytes=0
-        )
+        part = ImagePart(url="https://example.com/x.png", media_type="image/png", base64_bytes=0)
         tokens = estimate_image_tokens(part, model="anthropic/claude-opus-4-7")
         assert tokens == 1500  # _FALLBACK_TOKENS
 

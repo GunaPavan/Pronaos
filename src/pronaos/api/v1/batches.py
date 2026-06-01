@@ -310,25 +310,18 @@ async def create_batch(
             status_code=422,
             detail={
                 "type": "batch_endpoint_unsupported",
-                "hint": (
-                    "supported endpoints: /v1/chat/completions, "
-                    "/v1/embeddings (Phase 60)"
-                ),
+                "hint": ("supported endpoints: /v1/chat/completions, /v1/embeddings (Phase 60)"),
             },
         )
 
-    jsonl, provider = _serialize_requests_to_jsonl(
-        body.requests, endpoint=body.endpoint
-    )
+    jsonl, provider = _serialize_requests_to_jsonl(body.requests, endpoint=body.endpoint)
 
     # Submit to the upstream provider before persisting the DB row
     # so a provider rejection surfaces as 422 to the caller (rather
     # than leaving a half-built row in 'validating' state).
     client = _make_client(provider)
     try:
-        submission = await client.submit(
-            requests_jsonl=jsonl, endpoint=body.endpoint
-        )
+        submission = await client.submit(requests_jsonl=jsonl, endpoint=body.endpoint)
     finally:
         await client.aclose()
 
@@ -460,5 +453,3 @@ async def _load_batch_for_caller(
             detail={"type": "batch_not_found", "hint": batch_id},
         )
     return batch
-
-

@@ -87,10 +87,7 @@ def _mock_token_exchange(mock: respx.MockRouter) -> None:
 
 class TestModelIdParsing:
     def test_strip_prefix(self) -> None:
-        assert (
-            _strip_prefix("vertex/google/gemini-1.5-flash")
-            == "google/gemini-1.5-flash"
-        )
+        assert _strip_prefix("vertex/google/gemini-1.5-flash") == "google/gemini-1.5-flash"
 
     def test_split_publisher_model(self) -> None:
         pub, model = _split_publisher_model("google/gemini-1.5-flash")
@@ -98,9 +95,7 @@ class TestModelIdParsing:
         assert model == "gemini-1.5-flash"
 
     def test_split_handles_anthropic_version_suffix(self) -> None:
-        pub, model = _split_publisher_model(
-            "anthropic/claude-3-5-haiku@20241022"
-        )
+        pub, model = _split_publisher_model("anthropic/claude-3-5-haiku@20241022")
         assert pub == "anthropic"
         assert model == "claude-3-5-haiku@20241022"
 
@@ -145,9 +140,7 @@ class TestGeminiBody:
         body = _build_gemini_body(req)
         # System lives at the top level, NOT inside contents[].
         assert "systemInstruction" in body
-        assert body["systemInstruction"] == {
-            "parts": [{"text": "You are a helpful assistant."}]
-        }
+        assert body["systemInstruction"] == {"parts": [{"text": "You are a helpful assistant."}]}
         # contents only has the user turn.
         assert len(body["contents"]) == 1
         assert body["contents"][0]["role"] == "user"
@@ -439,9 +432,7 @@ class TestAnthropicOnVertexResponseParse:
 
 class TestEndToEndNonStreaming:
     @pytest.mark.asyncio
-    async def test_gemini_chat_completion_url_and_auth(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    async def test_gemini_chat_completion_url_and_auth(self, vertex_auth: VertexAuth) -> None:
         with respx.mock(assert_all_called=True) as mock:
             _mock_token_exchange(mock)
             route = mock.post(
@@ -493,9 +484,7 @@ class TestEndToEndNonStreaming:
         assert chunks[0].finish_reason == "stop"
 
     @pytest.mark.asyncio
-    async def test_anthropic_on_vertex_chat_completion_url(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    async def test_anthropic_on_vertex_chat_completion_url(self, vertex_auth: VertexAuth) -> None:
         with respx.mock(assert_all_called=True) as mock:
             _mock_token_exchange(mock)
             mock.post(
@@ -589,9 +578,7 @@ class TestEndToEndNonStreaming:
 
 class TestEndToEndStreamingGemini:
     @pytest.mark.asyncio
-    async def test_streaming_text_chunks_then_finish(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    async def test_streaming_text_chunks_then_finish(self, vertex_auth: VertexAuth) -> None:
         sse_body = (
             'data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}\n\n'
             'data: {"candidates":[{"content":{"parts":[{"text":", "}]}}]}\n\n'
@@ -601,9 +588,7 @@ class TestEndToEndStreamingGemini:
         )
         with respx.mock(assert_all_called=True) as mock:
             _mock_token_exchange(mock)
-            route = mock.post(
-                re.compile(r".*:streamGenerateContent.*")
-            ).mock(
+            route = mock.post(re.compile(r".*:streamGenerateContent.*")).mock(
                 return_value=httpx.Response(
                     200,
                     text=sse_body,
@@ -637,9 +622,7 @@ class TestEndToEndStreamingGemini:
 
 class TestEndToEndStreamingAnthropic:
     @pytest.mark.asyncio
-    async def test_streaming_text_deltas_and_terminal(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    async def test_streaming_text_deltas_and_terminal(self, vertex_auth: VertexAuth) -> None:
         # Anthropic-on-Vertex emits the standard Anthropic SSE shape.
         sse_body = (
             'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0}}}\n\n'
@@ -652,9 +635,7 @@ class TestEndToEndStreamingAnthropic:
         )
         with respx.mock(assert_all_called=True) as mock:
             _mock_token_exchange(mock)
-            route = mock.post(
-                re.compile(r".*:streamRawPredict$")
-            ).mock(
+            route = mock.post(re.compile(r".*:streamRawPredict$")).mock(
                 return_value=httpx.Response(
                     200,
                     text=sse_body,
@@ -740,9 +721,7 @@ class TestEndToEndStreamingAnthropic:
         assert terminal.cache_read_tokens == 4000
 
     @pytest.mark.asyncio
-    async def test_streaming_tool_use_accumulates_args(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    async def test_streaming_tool_use_accumulates_args(self, vertex_auth: VertexAuth) -> None:
         sse_body = (
             'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0}}}\n\n'
             'data: {"type":"content_block_start","index":0,'
@@ -834,9 +813,7 @@ class TestCostMath:
         )
         assert cost == 0
 
-    def test_gemini_thoughts_token_count_added_to_completion(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    def test_gemini_thoughts_token_count_added_to_completion(self, vertex_auth: VertexAuth) -> None:
         """Phase 56: Gemini 2.0 Flash Thinking / 2.5 Pro report
         ``usageMetadata.thoughtsTokenCount`` as a SEPARATE billable
         count that's EXCLUDED from ``candidatesTokenCount``. Without
@@ -868,9 +845,7 @@ class TestCostMath:
         assert chunk.reasoning_tokens == 500
         assert chunk.prompt_tokens == 20
 
-    def test_gemini_no_thoughts_token_count_unaffected(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    def test_gemini_no_thoughts_token_count_unaffected(self, vertex_auth: VertexAuth) -> None:
         """Regression: a Gemini non-thinking model leaves
         thoughtsTokenCount absent. completion_tokens must equal
         candidatesTokenCount alone (NO synthetic addition)."""
@@ -891,9 +866,7 @@ class TestCostMath:
         assert chunk.completion_tokens == 3
         assert chunk.reasoning_tokens == 0
 
-    def test_anthropic_on_vertex_cache_weighted_math(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    def test_anthropic_on_vertex_cache_weighted_math(self, vertex_auth: VertexAuth) -> None:
         """Phase 55: Anthropic-on-Vertex applies the same weighted
         prompt-cache pricing as direct Anthropic and Anthropic-on-Bedrock —
         1.25x for cache creation, 0.10x for cache reads."""
@@ -917,9 +890,7 @@ class TestCostMath:
         )
         assert cost == 80 + 50 + 1 + 200  # 331
 
-    def test_anthropic_on_vertex_cache_heavy_read_workload(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    def test_anthropic_on_vertex_cache_heavy_read_workload(self, vertex_auth: VertexAuth) -> None:
         """Cache-read-dominated workload (RAG re-prompt) costs much less
         than the same workload without the cache, confirming the 0.10x
         multiplier is wired correctly on Vertex too."""
@@ -943,9 +914,7 @@ class TestCostMath:
         )
         assert with_cache == 30 + 300 + 300
 
-    def test_gemini_publisher_ignores_cache_args(
-        self, vertex_auth: VertexAuth
-    ) -> None:
+    def test_gemini_publisher_ignores_cache_args(self, vertex_auth: VertexAuth) -> None:
         """Regression: passing cache_* args on a non-Anthropic publisher
         must NOT alter Gemini cost. Gemini does have a context-cache
         feature, but it bills through a separate price line (not the

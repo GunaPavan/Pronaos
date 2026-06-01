@@ -111,9 +111,7 @@ def _validate_guardrail_policy(
 
     if "disabled_rules" in value:
         disabled = value["disabled_rules"]
-        if not isinstance(disabled, list) or not all(
-            isinstance(r, str) for r in disabled
-        ):
+        if not isinstance(disabled, list) or not all(isinstance(r, str) for r in disabled):
             raise ValueError("disabled_rules must be a list of strings")
 
     if "rule_actions" in value:
@@ -122,9 +120,7 @@ def _validate_guardrail_policy(
             raise ValueError("rule_actions must be an object")
         for rule_id, action in actions.items():
             if not isinstance(rule_id, str):
-                raise ValueError(
-                    f"rule_actions key must be a string, got {type(rule_id).__name__}"
-                )
+                raise ValueError(f"rule_actions key must be a string, got {type(rule_id).__name__}")
             if not isinstance(action, str) or action not in _VALID_ACTIONS:
                 raise ValueError(
                     f"rule_actions[{rule_id!r}] must be one of {sorted(_VALID_ACTIONS)}; "
@@ -326,9 +322,7 @@ async def list_audit_records(
     if team_id:
         base = base.where(AuditRecord.team_id == team_id)
 
-    total = await session.scalar(
-        select(func.count()).select_from(base.subquery())
-    )
+    total = await session.scalar(select(func.count()).select_from(base.subquery()))
     rows = (
         (
             await session.execute(

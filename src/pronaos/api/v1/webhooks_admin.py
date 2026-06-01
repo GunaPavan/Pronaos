@@ -101,9 +101,7 @@ class WebhookUpdateBody(BaseModel):
         if v is None:
             return None
         if len(v) < _MIN_SECRET_LEN:
-            raise ValueError(
-                f"secret must be at least {_MIN_SECRET_LEN} characters"
-            )
+            raise ValueError(f"secret must be at least {_MIN_SECRET_LEN} characters")
         return v
 
 

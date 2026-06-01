@@ -90,12 +90,8 @@ async def get_gateway_settings(
         anthropic_configured=bool(settings.anthropic_api_key),
         groq_configured=bool(settings.groq_api_key),
         openai_configured=bool(settings.openai_api_key),
-        bedrock_configured=bool(
-            settings.aws_access_key_id and settings.aws_secret_access_key
-        ),
-        vertex_configured=bool(
-            settings.vertex_project_id and settings.vertex_service_account_json
-        ),
+        bedrock_configured=bool(settings.aws_access_key_id and settings.aws_secret_access_key),
+        vertex_configured=bool(settings.vertex_project_id and settings.vertex_service_account_json),
         mcp_enabled=settings.mcp_enabled,
         presidio_enabled=settings.presidio_enabled,
         singleflight_distributed=settings.singleflight_distributed,

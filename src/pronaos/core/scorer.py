@@ -250,12 +250,8 @@ class PromptCacheAwareCostScorer:
         self._min_hit_rate = min_hit_rate
 
     def score(self, candidate: Candidate, request: RoutingRequest) -> float:
-        nominal_in = (
-            request.estimated_input_tokens * candidate.pricing.input_hcents_per_mtok
-        )
-        out_cost = (
-            request.estimated_output_tokens * candidate.pricing.output_hcents_per_mtok
-        )
+        nominal_in = request.estimated_input_tokens * candidate.pricing.input_hcents_per_mtok
+        out_cost = request.estimated_output_tokens * candidate.pricing.output_hcents_per_mtok
         multiplier = self._effective_input_multiplier(candidate)
         return (nominal_in * multiplier + out_cost) / 1_000_000.0
 
@@ -315,12 +311,8 @@ class ReasoningAwareCostScorer:
         self._min_samples = min_samples
 
     def score(self, candidate: Candidate, request: RoutingRequest) -> float:
-        in_cost = (
-            request.estimated_input_tokens * candidate.pricing.input_hcents_per_mtok
-        )
-        nominal_out = (
-            request.estimated_output_tokens * candidate.pricing.output_hcents_per_mtok
-        )
+        in_cost = request.estimated_input_tokens * candidate.pricing.input_hcents_per_mtok
+        nominal_out = request.estimated_output_tokens * candidate.pricing.output_hcents_per_mtok
         multiplier = self._effective_output_multiplier(candidate)
         return (in_cost + nominal_out * multiplier) / 1_000_000.0
 
@@ -674,14 +666,9 @@ def select_model(
     # Phase 46: tool-use accuracy filter, but ONLY when the request
     # carries tools. Tool-less requests have nothing to gain from
     # filtering on tool-use accuracy — fall through to cheapest.
-    if (
-        strategy == RoutingStrategy.TOOL_USE_AWARE_CHEAPEST
-        and request.requires_tools
-    ):
+    if strategy == RoutingStrategy.TOOL_USE_AWARE_CHEAPEST and request.requires_tools:
         tu_threshold = (
-            tool_use_threshold
-            if tool_use_threshold is not None
-            else DEFAULT_TOOL_USE_THRESHOLD
+            tool_use_threshold if tool_use_threshold is not None else DEFAULT_TOOL_USE_THRESHOLD
         )
         tu_eligible = filter_by_tool_use_score(
             eligible,

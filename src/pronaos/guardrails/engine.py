@@ -182,9 +182,7 @@ class DefaultGuardrailEngine(GuardrailEngine):
                     redact_hits.extend(hits)
                 elif action == GuardrailAction.TOKENIZE:
                     for h in hits:
-                        tokenize_hits_collected.append(
-                            (rule.name, h.span, h.matched_text)
-                        )
+                        tokenize_hits_collected.append((rule.name, h.span, h.matched_text))
 
             if block_reason is not None:
                 return GuardrailVerdict(

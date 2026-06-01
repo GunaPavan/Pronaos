@@ -76,7 +76,9 @@ class TestIsOverBudget:
 
 class TestStripOverBudgetTools:
     def test_no_tools_returns_unchanged(self) -> None:
-        new, stripped = strip_over_budget_tools(None, {"web_search": {"limit_calls": 1, "current_calls": 1}})
+        new, stripped = strip_over_budget_tools(
+            None, {"web_search": {"limit_calls": 1, "current_calls": 1}}
+        )
         assert new is None
         assert stripped == []
 
@@ -141,7 +143,9 @@ class TestToolNamesFromCalls:
         assert tool_names_from_calls([]) == []
 
     def test_extracts_single(self) -> None:
-        calls = [{"id": "1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}]
+        calls = [
+            {"id": "1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+        ]
         assert tool_names_from_calls(calls) == ["web_search"]
 
     def test_extracts_multiple_preserves_order(self) -> None:
@@ -213,9 +217,7 @@ async def _seed_team_with_tool_budgets(
 
 class TestRecordCallToolBudgets:
     @pytest.mark.asyncio
-    async def test_no_tool_names_no_budget_update(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_no_tool_names_no_budget_update(self, sessionmaker_: async_sessionmaker) -> None:
         """Plain chat call (no tool_calls) — tool_budgets stays untouched."""
         tenant_id, team_id = await _seed_team_with_tool_budgets(
             sessionmaker_, {"web_search": {"limit_calls": 100, "current_calls": 5}}
@@ -239,14 +241,10 @@ class TestRecordCallToolBudgets:
         async with sessionmaker_() as session:
             team = await session.get(Team, team_id)
             assert team is not None
-            assert team.tool_budgets == {
-                "web_search": {"limit_calls": 100, "current_calls": 5}
-            }
+            assert team.tool_budgets == {"web_search": {"limit_calls": 100, "current_calls": 5}}
 
     @pytest.mark.asyncio
-    async def test_single_emitted_tool_increments(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_single_emitted_tool_increments(self, sessionmaker_: async_sessionmaker) -> None:
         tenant_id, team_id = await _seed_team_with_tool_budgets(
             sessionmaker_, {"web_search": {"limit_calls": 100, "current_calls": 5}}
         )
@@ -270,14 +268,10 @@ class TestRecordCallToolBudgets:
         async with sessionmaker_() as session:
             team = await session.get(Team, team_id)
             assert team is not None
-            assert team.tool_budgets == {
-                "web_search": {"limit_calls": 100, "current_calls": 6}
-            }
+            assert team.tool_budgets == {"web_search": {"limit_calls": 100, "current_calls": 6}}
 
     @pytest.mark.asyncio
-    async def test_duplicate_tool_increments_twice(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_duplicate_tool_increments_twice(self, sessionmaker_: async_sessionmaker) -> None:
         """Same tool emitted twice in one response = +2 on the counter."""
         tenant_id, team_id = await _seed_team_with_tool_budgets(
             sessionmaker_, {"web_search": {"limit_calls": 100, "current_calls": 0}}
@@ -332,14 +326,10 @@ class TestRecordCallToolBudgets:
         async with sessionmaker_() as session:
             team = await session.get(Team, team_id)
             assert team is not None
-            assert team.tool_budgets == {
-                "web_search": {"limit_calls": 100, "current_calls": 5}
-            }
+            assert team.tool_budgets == {"web_search": {"limit_calls": 100, "current_calls": 5}}
 
     @pytest.mark.asyncio
-    async def test_null_budgets_no_crash(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_null_budgets_no_crash(self, sessionmaker_: async_sessionmaker) -> None:
         """Team with no per-tool caps configured — record_call is a no-op
         on the budgets side but still writes the usage_record."""
         tenant_id, team_id = await _seed_team_with_tool_budgets(sessionmaker_, None)
@@ -366,9 +356,7 @@ class TestRecordCallToolBudgets:
             assert team.tool_budgets is None
 
     @pytest.mark.asyncio
-    async def test_usage_record_tool_names_stored(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_usage_record_tool_names_stored(self, sessionmaker_: async_sessionmaker) -> None:
         """Comma-joined tool_names land on the usage_records row."""
         tenant_id, team_id = await _seed_team_with_tool_budgets(sessionmaker_, None)
         tracker = QuotaTracker()
@@ -390,16 +378,12 @@ class TestRecordCallToolBudgets:
             await session.commit()
         async with sessionmaker_() as session:
             row = (
-                await session.execute(
-                    select(UsageRecord).where(UsageRecord.team_id == team_id)
-                )
+                await session.execute(select(UsageRecord).where(UsageRecord.team_id == team_id))
             ).scalar_one()
             assert row.tool_names == "web_search,code_exec"
 
     @pytest.mark.asyncio
-    async def test_usage_record_no_tools_null(
-        self, sessionmaker_: async_sessionmaker
-    ) -> None:
+    async def test_usage_record_no_tools_null(self, sessionmaker_: async_sessionmaker) -> None:
         """No tool_calls = NULL in the column, not empty string."""
         tenant_id, team_id = await _seed_team_with_tool_budgets(sessionmaker_, None)
         tracker = QuotaTracker()
@@ -420,8 +404,6 @@ class TestRecordCallToolBudgets:
             await session.commit()
         async with sessionmaker_() as session:
             row = (
-                await session.execute(
-                    select(UsageRecord).where(UsageRecord.team_id == team_id)
-                )
+                await session.execute(select(UsageRecord).where(UsageRecord.team_id == team_id))
             ).scalar_one()
             assert row.tool_names is None

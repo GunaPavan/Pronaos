@@ -168,9 +168,7 @@ async def test_bare_text_embedding_name_routes_to_openai(auth_setup, monkeypatch
             return_value=httpx.Response(200, json={"id": "file-bare"})
         )
         r.post("https://api.openai.com/v1/batches").mock(
-            return_value=httpx.Response(
-                200, json={"id": "batch_bare", "status": "validating"}
-            )
+            return_value=httpx.Response(200, json={"id": "batch_bare", "status": "validating"})
         )
 
         resp = await auth_setup.client.post(

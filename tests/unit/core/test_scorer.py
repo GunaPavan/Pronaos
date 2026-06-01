@@ -577,9 +577,7 @@ class TestDegradedModelExclusion:
             select_model(
                 strategy=RoutingStrategy.CHEAPEST,
                 allowed_patterns=["groq/llama-3.1-8b-instant"],
-                request=RoutingRequest(
-                    estimated_input_tokens=100, estimated_output_tokens=100
-                ),
+                request=RoutingRequest(estimated_input_tokens=100, estimated_output_tokens=100),
                 degraded_models_set={"groq/llama-3.1-8b-instant"},
             )
 
@@ -614,16 +612,12 @@ class TestFilterByToolUseScore:
 
     def test_returns_input_when_scores_none(self) -> None:
         cands = [self._mk("groq/a"), self._mk("groq/b")]
-        out = filter_by_tool_use_score(
-            cands, tool_use_scores=None, tool_use_threshold=0.9
-        )
+        out = filter_by_tool_use_score(cands, tool_use_scores=None, tool_use_threshold=0.9)
         assert out == cands
 
     def test_returns_input_when_scores_empty(self) -> None:
         cands = [self._mk("groq/a")]
-        out = filter_by_tool_use_score(
-            cands, tool_use_scores={}, tool_use_threshold=0.9
-        )
+        out = filter_by_tool_use_score(cands, tool_use_scores={}, tool_use_threshold=0.9)
         assert out == cands
 
     def test_drops_below_threshold(self) -> None:
@@ -632,25 +626,19 @@ class TestFilterByToolUseScore:
             "groq/cheap": {"score": 0.7, "n_samples": 12},
             "groq/accurate": {"score": 1.0, "n_samples": 12},
         }
-        out = filter_by_tool_use_score(
-            cands, tool_use_scores=scores, tool_use_threshold=0.9
-        )
+        out = filter_by_tool_use_score(cands, tool_use_scores=scores, tool_use_threshold=0.9)
         assert [c.fqmn for c in out] == ["groq/accurate"]
 
     def test_keeps_unevaluated_models(self) -> None:
         cands = [self._mk("groq/known"), self._mk("groq/unknown")]
         scores = {"groq/known": {"score": 0.95, "n_samples": 12}}
-        out = filter_by_tool_use_score(
-            cands, tool_use_scores=scores, tool_use_threshold=0.9
-        )
+        out = filter_by_tool_use_score(cands, tool_use_scores=scores, tool_use_threshold=0.9)
         assert {c.fqmn for c in out} == {"groq/known", "groq/unknown"}
 
     def test_threshold_boundary_keeps_equal(self) -> None:
         cands = [self._mk("groq/boundary")]
         scores = {"groq/boundary": {"score": 0.9, "n_samples": 12}}
-        out = filter_by_tool_use_score(
-            cands, tool_use_scores=scores, tool_use_threshold=0.9
-        )
+        out = filter_by_tool_use_score(cands, tool_use_scores=scores, tool_use_threshold=0.9)
         assert [c.fqmn for c in out] == ["groq/boundary"]
 
 
@@ -820,9 +808,7 @@ class TestPromptCacheAwareCostScorer:
         )
 
     def test_no_observation_yields_nominal_cost(self) -> None:
-        scorer = PromptCacheAwareCostScorer(
-            observations={}, min_samples=20, min_hit_rate=0.1
-        )
+        scorer = PromptCacheAwareCostScorer(observations={}, min_samples=20, min_hit_rate=0.1)
         candidate = self._candidate("anthropic", "claude-sonnet-4-5")
         req = RoutingRequest(estimated_input_tokens=1000, estimated_output_tokens=0)
         # Nominal: 1000 tokens * 1_000_000 / 1_000_000 = 1000 hcents

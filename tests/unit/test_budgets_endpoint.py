@@ -28,9 +28,7 @@ def _auth(token: str) -> dict[str, str]:
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     """Override the seeded key's scopes."""
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -77,9 +75,7 @@ async def test_budget_get_404_for_unknown_team(auth_setup) -> None:  # type: ign
 
 @pytest.mark.asyncio
 async def test_budget_put_sets_caps_and_persists(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    await _grant_scope(
-        auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity"
-    )
+    await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity")
     headers = _auth(auth_setup.api_key)
 
     r = await auth_setup.client.put(
@@ -95,9 +91,7 @@ async def test_budget_put_sets_caps_and_persists(auth_setup) -> None:  # type: i
     assert r.json()["monthly_cost_hcents_budget"] == 500_000
 
     # Reload via GET to confirm DB persistence.
-    r = await auth_setup.client.get(
-        f"/v1/admin/budgets/{auth_setup.team_id}", headers=headers
-    )
+    r = await auth_setup.client.get(f"/v1/admin/budgets/{auth_setup.team_id}", headers=headers)
     assert r.json()["monthly_token_budget"] == 10_000_000
     assert r.json()["monthly_cost_hcents_budget"] == 500_000
 
@@ -106,9 +100,7 @@ async def test_budget_put_sets_caps_and_persists(auth_setup) -> None:  # type: i
 async def test_budget_put_null_clears_cap(auth_setup) -> None:  # type: ignore[no-untyped-def]
     """Passing ``null`` explicitly should set the cap back to NULL
     (unlimited). Omitting the field entirely is a separate case."""
-    await _grant_scope(
-        auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity"
-    )
+    await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity")
     headers = _auth(auth_setup.api_key)
     # First set a cap.
     await auth_setup.client.put(
@@ -130,9 +122,7 @@ async def test_budget_put_null_clears_cap(auth_setup) -> None:  # type: ignore[n
 async def test_budget_put_only_touches_set_fields(auth_setup) -> None:  # type: ignore[no-untyped-def]
     """Partial update: setting only the cost cap must leave the token
     cap unchanged."""
-    await _grant_scope(
-        auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity"
-    )
+    await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity")
     headers = _auth(auth_setup.api_key)
     # Seed both caps.
     await auth_setup.client.put(
@@ -156,9 +146,7 @@ async def test_budget_put_only_touches_set_fields(auth_setup) -> None:  # type: 
 
 @pytest.mark.asyncio
 async def test_budget_put_negative_value_rejected(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    await _grant_scope(
-        auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity"
-    )
+    await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage admin:identity")
     r = await auth_setup.client.put(
         f"/v1/admin/budgets/{auth_setup.team_id}",
         json={"monthly_token_budget": -1},
@@ -242,9 +230,7 @@ async def test_timeseries_aggregates_by_day(auth_setup) -> None:  # type: ignore
     assert len(body["points"]) == 5
 
     # Verify sums by day-of-month → expected values.
-    by_day = {
-        datetime.fromtimestamp(p["bucket"], UTC).day: p for p in body["points"]
-    }
+    by_day = {datetime.fromtimestamp(p["bucket"], UTC).day: p for p in body["points"]}
     assert by_day[15]["requests"] == 2
     assert by_day[15]["prompt_tokens"] == 300  # 100 + 200
     assert by_day[15]["cost_hcents"] == 35  # 10 + 25

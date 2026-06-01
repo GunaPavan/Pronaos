@@ -91,10 +91,14 @@ async def db_url() -> Any:
     from pronaos.core.doctor import _latest_migration_revision
 
     rev = _latest_migration_revision() or "0001"
-    engine = create_async_engine("sqlite+aiosqlite:///file:memdb1?mode=memory&cache=shared&uri=true")
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///file:memdb1?mode=memory&cache=shared&uri=true"
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        await conn.execute(
+            text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) PRIMARY KEY)")
+        )
         await conn.execute(text("DELETE FROM alembic_version"))
         await conn.execute(text(f"INSERT INTO alembic_version VALUES ('{rev}')"))
     try:

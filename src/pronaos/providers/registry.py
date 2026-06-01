@@ -111,20 +111,14 @@ class ProviderRegistry:
                 # a single one signals a half-configured environment
                 # that we'd rather surface explicitly than silently
                 # advertise.
-                if (
-                    self._settings.aws_access_key_id
-                    and self._settings.aws_secret_access_key
-                ):
+                if self._settings.aws_access_key_id and self._settings.aws_secret_access_key:
                     keys.append(catalog_key)
                 continue
             if catalog_key == "vertex":
                 # Vertex needs BOTH project_id AND service-account JSON
                 # set; one without the other is a half-configured
                 # environment.
-                if (
-                    self._settings.vertex_project_id
-                    and self._settings.vertex_service_account_json
-                ):
+                if self._settings.vertex_project_id and self._settings.vertex_service_account_json:
                     keys.append(catalog_key)
                 continue
             attr = entry.settings_attr

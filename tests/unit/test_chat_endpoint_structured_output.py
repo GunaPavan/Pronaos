@@ -53,7 +53,9 @@ _RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
-def _groq_response(content: str, *, prompt_tokens: int = 5, completion_tokens: int = 7) -> dict[str, Any]:
+def _groq_response(
+    content: str, *, prompt_tokens: int = 5, completion_tokens: int = 7
+) -> dict[str, Any]:
     return {
         "id": "chatcmpl-x",
         "object": "chat.completion",
@@ -79,9 +81,7 @@ async def test_first_try_passes_no_retry(auth_setup) -> None:  # type: ignore[no
     """Response validates on the first attempt; validation marker = passed,
     no retry-count header, no extra upstream calls."""
     route = respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(
-            200, json=_groq_response('{"name": "Alice", "age": 30}')
-        )
+        return_value=httpx.Response(200, json=_groq_response('{"name": "Alice", "age": 30}'))
     )
     resp = await auth_setup.client.post(
         "/v1/chat/completions",
@@ -107,9 +107,7 @@ async def test_retry_recovers(auth_setup) -> None:  # type: ignore[no-untyped-de
     # The respx route uses side_effect to vary per-call response.
     responses = [
         httpx.Response(200, json=_groq_response("This is not JSON.")),
-        httpx.Response(
-            200, json=_groq_response('{"name": "Bob", "age": 25}')
-        ),
+        httpx.Response(200, json=_groq_response('{"name": "Bob", "age": 25}')),
     ]
 
     def side_effect(request: httpx.Request) -> httpx.Response:
@@ -145,10 +143,7 @@ async def test_retry_exhausted_returns_failed(auth_setup) -> None:  # type: igno
     does NOT see a 5xx — they get the last LLM output (might be
     useful debugging info)."""
     # 3 invalid responses for 1 initial + 2 retries (default max_retries=2).
-    responses = [
-        httpx.Response(200, json=_groq_response("not json"))
-        for _ in range(3)
-    ]
+    responses = [httpx.Response(200, json=_groq_response("not json")) for _ in range(3)]
 
     def side_effect(request: httpx.Request) -> httpx.Response:
         return responses.pop(0)
@@ -177,9 +172,7 @@ async def test_no_schema_skips_validation_entirely(auth_setup) -> None:  # type:
     no retries — preserves the existing behaviour for non-structured
     workloads."""
     route = respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(
-            200, json=_groq_response("plain text response")
-        )
+        return_value=httpx.Response(200, json=_groq_response("plain text response"))
     )
     resp = await auth_setup.client.post(
         "/v1/chat/completions",
@@ -203,9 +196,7 @@ async def test_retries_count_as_separate_usage_records(auth_setup) -> None:  # t
     usage_records row. Operators see the retry cost in dashboards."""
     responses = [
         httpx.Response(200, json=_groq_response("not json")),
-        httpx.Response(
-            200, json=_groq_response('{"name": "Eve", "age": 40}')
-        ),
+        httpx.Response(200, json=_groq_response('{"name": "Eve", "age": 40}')),
     ]
 
     def side_effect(request: httpx.Request) -> httpx.Response:
@@ -228,13 +219,15 @@ async def test_retries_count_as_separate_usage_records(auth_setup) -> None:  # t
     # attempt and the retry.
     async with auth_setup.sm() as session:
         rows = (
-            await session.execute(
-                select(UsageRecord).where(UsageRecord.team_id == auth_setup.team_id)
+            (
+                await session.execute(
+                    select(UsageRecord).where(UsageRecord.team_id == auth_setup.team_id)
+                )
             )
-        ).scalars().all()
-        assert len(rows) == 2, (
-            f"expected 2 usage_records (initial + 1 retry); got {len(rows)}"
+            .scalars()
+            .all()
         )
+        assert len(rows) == 2, f"expected 2 usage_records (initial + 1 retry); got {len(rows)}"
 
 
 @respx.mock
@@ -255,9 +248,7 @@ async def test_max_retries_zero_disables_retry(auth_setup) -> None:  # type: ign
         )
         await session.commit()
 
-    respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(200, json=_groq_response("not json"))
-    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_response("not json")))
 
     resp = await auth_setup.client.post(
         "/v1/chat/completions",

@@ -169,8 +169,7 @@ def parse_one_frame(
         )
     if total_length > _MAX_FRAME_LEN:
         raise EventStreamParseError(
-            f"frame total_length {total_length} exceeds sanity cap "
-            f"({_MAX_FRAME_LEN})"
+            f"frame total_length {total_length} exceeds sanity cap ({_MAX_FRAME_LEN})"
         )
 
     if len(buf) < total_length:
@@ -195,9 +194,7 @@ def parse_one_frame(
         )
 
     headers_bytes = buf[_PRELUDE_LEN : _PRELUDE_LEN + headers_length]
-    payload_bytes = buf[
-        _PRELUDE_LEN + headers_length : total_length - _TRAILER_LEN
-    ]
+    payload_bytes = buf[_PRELUDE_LEN + headers_length : total_length - _TRAILER_LEN]
     headers = _parse_headers(headers_bytes)
     return EventStreamFrame(headers=headers, payload=payload_bytes), total_length
 
@@ -248,9 +245,7 @@ def _parse_headers(headers_bytes: bytes) -> dict[str, Any]:
         name_length = headers_bytes[offset]
         offset += 1
         if offset + name_length + 1 > length:
-            raise EventStreamParseError(
-                "truncated header: name + value_type runs past buffer"
-            )
+            raise EventStreamParseError("truncated header: name + value_type runs past buffer")
         name = headers_bytes[offset : offset + name_length].decode("ascii")
         offset += name_length
         value_type = headers_bytes[offset]
@@ -261,9 +256,7 @@ def _parse_headers(headers_bytes: bytes) -> dict[str, Any]:
     return headers
 
 
-def _parse_header_value(
-    value_type: int, buf: bytes, offset: int
-) -> tuple[Any, int]:
+def _parse_header_value(value_type: int, buf: bytes, offset: int) -> tuple[Any, int]:
     """Decode a single header value starting at ``buf[offset]`` and
     return ``(value, n_consumed_from_offset)``.
 
@@ -344,9 +337,7 @@ def encode_string_header(name: str, value: str) -> bytes:
     )
 
 
-def encode_frame(
-    headers: dict[str, str], payload: bytes
-) -> bytes:
+def encode_frame(headers: dict[str, str], payload: bytes) -> bytes:
     """Encode a complete event-stream frame from headers + payload.
 
     Computes both CRCs correctly so the resulting bytes round-trip
@@ -354,9 +345,7 @@ def encode_frame(
     to build streams of realistic Bedrock frames without depending on
     botocore's encoder.
     """
-    header_bytes = b"".join(
-        encode_string_header(name, value) for name, value in headers.items()
-    )
+    header_bytes = b"".join(encode_string_header(name, value) for name, value in headers.items())
     headers_length = len(header_bytes)
     total_length = _PRELUDE_LEN + headers_length + len(payload) + _TRAILER_LEN
     prelude = struct.pack(">II", total_length, headers_length)

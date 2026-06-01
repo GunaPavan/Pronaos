@@ -30,9 +30,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -326,8 +324,6 @@ async def test_audit_verify_detects_tampered_record(auth_setup) -> None:  # type
     # The middle record's hash no longer matches; verifier flags it
     # plus the cascading prev_hash_mismatch on record 3.
     assert len(body["breaks"]) >= 1
-    tampered_break = next(
-        (b for b in body["breaks"] if b["record_id"] == tampered_id), None
-    )
+    tampered_break = next((b for b in body["breaks"] if b["record_id"] == tampered_id), None)
     assert tampered_break is not None
     assert tampered_break["reason"] == "hash_mismatch"

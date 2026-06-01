@@ -81,8 +81,7 @@ async def admin_list_batches(
             status_code=422,
             detail={
                 "type": "invalid_status",
-                "hint": f"status must be one of {sorted(_VALID_STATUSES)}; "
-                f"got {status!r}",
+                "hint": f"status must be one of {sorted(_VALID_STATUSES)}; got {status!r}",
             },
         )
 
@@ -94,15 +93,9 @@ async def admin_list_batches(
     if status:
         base = base.where(Batch.status == status)
 
-    total = await session.scalar(
-        select(func.count()).select_from(base.subquery())
-    )
+    total = await session.scalar(select(func.count()).select_from(base.subquery()))
     rows = (
-        (
-            await session.execute(
-                base.order_by(Batch.created_at.desc()).limit(limit).offset(offset)
-            )
-        )
+        (await session.execute(base.order_by(Batch.created_at.desc()).limit(limit).offset(offset)))
         .scalars()
         .all()
     )
@@ -114,9 +107,7 @@ async def admin_list_batches(
         returned=len(items),
         filters={"team_id": team_id, "status": status},
     )
-    return AdminBatchListResponse(
-        items=items, total=total or 0, limit=limit, offset=offset
-    )
+    return AdminBatchListResponse(items=items, total=total or 0, limit=limit, offset=offset)
 
 
 @router.get(

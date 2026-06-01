@@ -70,9 +70,7 @@ _MAX_ERRORS_IN_PROMPT: Final = 10
 # models default to ```json {...} ``` even when asked for raw JSON.
 # We strip the fence before validation so a syntactically valid JSON
 # body still validates.
-_FENCED_JSON_RE: Final = re.compile(
-    r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE
-)
+_FENCED_JSON_RE: Final = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE)
 
 
 # --------------------------------------------------------------------------- #
@@ -139,9 +137,7 @@ def extract_schema(response_format: dict[str, Any] | None) -> dict[str, Any] | N
 # --------------------------------------------------------------------------- #
 
 
-def validate_response_content(
-    content: str | None, schema: dict[str, Any]
-) -> ValidationResult:
+def validate_response_content(content: str | None, schema: dict[str, Any]) -> ValidationResult:
     """Validate an assistant-message content string against ``schema``.
 
     Three failure modes, handled distinctly so the corrective prompt
@@ -189,9 +185,7 @@ def validate_response_content(
         return ValidationResult(passed=True, parsed=parsed, raw_content=content)
 
     formatted = _format_validation_errors(errors)
-    return ValidationResult(
-        passed=False, parsed=parsed, errors=formatted, raw_content=content
-    )
+    return ValidationResult(passed=False, parsed=parsed, errors=formatted, raw_content=content)
 
 
 def _format_validation_errors(errors: list[ValidationError]) -> list[str]:
@@ -209,9 +203,7 @@ def _format_validation_errors(errors: list[ValidationError]) -> list[str]:
         path = ".".join(str(p) for p in err.absolute_path) or "<root>"
         out.append(f"{path}: {err.message}")
     if len(errors) > _MAX_ERRORS_IN_PROMPT:
-        out.append(
-            f"... and {len(errors) - _MAX_ERRORS_IN_PROMPT} more error(s) (truncated)."
-        )
+        out.append(f"... and {len(errors) - _MAX_ERRORS_IN_PROMPT} more error(s) (truncated).")
     return out
 
 

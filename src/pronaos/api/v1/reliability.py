@@ -65,9 +65,7 @@ class ProvidersResponse(BaseModel):
     items: list[ProviderInfo]
 
 
-def _circuit_state_for(
-    name: str, snapshot: dict[str, CircuitState]
-) -> str:
+def _circuit_state_for(name: str, snapshot: dict[str, CircuitState]) -> str:
     """Return the wire-format circuit state.
 
     Missing-from-snapshot → "closed" because that's how the failover
@@ -234,8 +232,7 @@ async def get_doctor_report(
     report = await run_doctor(settings, probe_providers=False)
 
     gates = [
-        DoctorGate(name=g.name, verdict=g.verdict.value, detail=g.detail)
-        for g in report.gates
+        DoctorGate(name=g.name, verdict=g.verdict.value, detail=g.detail) for g in report.gates
     ]
     # The DoctorReport's existing .to_dict() summary uses "pass" which
     # is a Python keyword in some toolchains; we rename to "passed"

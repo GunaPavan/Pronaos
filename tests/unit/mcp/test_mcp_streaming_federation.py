@@ -68,9 +68,7 @@ def _body(**overrides: Any) -> ChatCompletionBody:
         "model": "groq/llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": "hi"}],
         "stream": True,
-        "pronaos_mcp_servers": [
-            {"name": "weather", "command": "python", "args": ["fake.py"]}
-        ],
+        "pronaos_mcp_servers": [{"name": "weather", "command": "python", "args": ["fake.py"]}],
     }
     base.update(overrides)
     return ChatCompletionBody(**base)
@@ -116,9 +114,7 @@ class TestStreamingFederationSynthesis:
             ],
         }
         loop_mock = AsyncMock(return_value=final_payload)
-        with patch(
-            "pronaos.api.v1.chat._run_mcp_federation_loop", loop_mock
-        ):
+        with patch("pronaos.api.v1.chat._run_mcp_federation_loop", loop_mock):
             resp = await _run_mcp_streaming_federation(
                 request=_request(),
                 body=_body(),
@@ -165,9 +161,7 @@ class TestStreamingFederationSynthesis:
         ]
         assert len(content_chunks) == 3
         # Concatenated content must equal the original.
-        reconstructed = "".join(
-            c["choices"][0]["delta"]["content"] for c in content_chunks
-        )
+        reconstructed = "".join(c["choices"][0]["delta"]["content"] for c in content_chunks)
         assert reconstructed == content
 
     @pytest.mark.asyncio
@@ -197,9 +191,7 @@ class TestStreamingFederationSynthesis:
         finish_chunks = [
             c
             for c in chunks
-            if not c.get("_done")
-            and c.get("choices")
-            and c["choices"][0].get("finish_reason")
+            if not c.get("_done") and c.get("choices") and c["choices"][0].get("finish_reason")
         ]
         assert len(finish_chunks) == 1
         assert finish_chunks[0]["choices"][0]["finish_reason"] == "stop"
@@ -323,12 +315,13 @@ class TestStreamingFederationMetrics:
                 }
             ],
         }
-        with patch(
-            "pronaos.api.v1.chat._run_mcp_federation_loop",
-            AsyncMock(return_value=final_payload),
-        ), patch(
-            "pronaos.api.v1.chat.record_mcp_streaming_federation_session"
-        ) as rec:
+        with (
+            patch(
+                "pronaos.api.v1.chat._run_mcp_federation_loop",
+                AsyncMock(return_value=final_payload),
+            ),
+            patch("pronaos.api.v1.chat.record_mcp_streaming_federation_session") as rec,
+        ):
             await _run_mcp_streaming_federation(
                 request=_request(),
                 body=_body(),
@@ -348,11 +341,10 @@ class TestStreamingFederationMetrics:
                 detail={"type": "mcp_invalid_spec", "message": "bad"},
             )
 
-        with patch(
-            "pronaos.api.v1.chat._run_mcp_federation_loop", fake_loop
-        ), patch(
-            "pronaos.api.v1.chat.record_mcp_streaming_federation_session"
-        ) as rec:
+        with (
+            patch("pronaos.api.v1.chat._run_mcp_federation_loop", fake_loop),
+            patch("pronaos.api.v1.chat.record_mcp_streaming_federation_session") as rec,
+        ):
             with pytest.raises(HTTPException) as exc:
                 await _run_mcp_streaming_federation(
                     request=_request(),
@@ -381,11 +373,10 @@ class TestStreamingFederationMetrics:
                 ],
             }
 
-        with patch(
-            "pronaos.api.v1.chat._run_mcp_federation_loop", fake_loop
-        ), patch(
-            "pronaos.api.v1.chat.record_mcp_streaming_federation_session"
-        ) as rec:
+        with (
+            patch("pronaos.api.v1.chat._run_mcp_federation_loop", fake_loop),
+            patch("pronaos.api.v1.chat.record_mcp_streaming_federation_session") as rec,
+        ):
             await _run_mcp_streaming_federation(
                 request=_request(),
                 body=_body(),

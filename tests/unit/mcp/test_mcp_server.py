@@ -91,9 +91,7 @@ class TestToolDescriptors:
 
         handler = request_handlers[ListToolsRequest]
         # MCP request shape — empty params object.
-        result = await handler(
-            ListToolsRequest(method="tools/list", params=None)
-        )
+        result = await handler(ListToolsRequest(method="tools/list", params=None))
         # Result is a ServerResult wrapping a ListToolsResult.
         list_result = result.root
         names = {tool.name for tool in list_result.tools}
@@ -105,9 +103,7 @@ class TestToolDescriptors:
         from mcp.types import ListToolsRequest
 
         handler = srv.mcp.request_handlers[ListToolsRequest]
-        result = await handler(
-            ListToolsRequest(method="tools/list", params=None)
-        )
+        result = await handler(ListToolsRequest(method="tools/list", params=None))
         list_result = result.root
         chat = next(t for t in list_result.tools if t.name == "pronaos.chat")
         assert chat.inputSchema["type"] == "object"
@@ -121,9 +117,7 @@ class TestToolDescriptors:
         from mcp.types import ListToolsRequest
 
         handler = srv.mcp.request_handlers[ListToolsRequest]
-        result = await handler(
-            ListToolsRequest(method="tools/list", params=None)
-        )
+        result = await handler(ListToolsRequest(method="tools/list", params=None))
         list_result = result.root
         embed = next(t for t in list_result.tools if t.name == "pronaos.embed")
         assert set(embed.inputSchema["required"]) == {"model", "input"}
@@ -138,9 +132,7 @@ class TestToolDescriptors:
         from mcp.types import ListToolsRequest
 
         handler = srv.mcp.request_handlers[ListToolsRequest]
-        result = await handler(
-            ListToolsRequest(method="tools/list", params=None)
-        )
+        result = await handler(ListToolsRequest(method="tools/list", params=None))
         list_result = result.root
         rerank = next(t for t in list_result.tools if t.name == "pronaos.rerank")
         assert set(rerank.inputSchema["required"]) == {
@@ -203,9 +195,7 @@ class TestToolCallForwarding:
                         name="pronaos.chat",
                         arguments={
                             "model": "groq/llama-3.1-8b-instant",
-                            "messages": [
-                                {"role": "user", "content": "say hi"}
-                            ],
+                            "messages": [{"role": "user", "content": "say hi"}],
                             "max_tokens": 5,
                         },
                     ),
@@ -217,9 +207,7 @@ class TestToolCallForwarding:
         # respx saw the forwarded call.
         assert route.called
         forwarded_request = route.calls.last.request
-        assert (
-            forwarded_request.headers["authorization"] == "Bearer pn_test_xyz"
-        )
+        assert forwarded_request.headers["authorization"] == "Bearer pn_test_xyz"
         forwarded_body = json.loads(forwarded_request.content)
         assert forwarded_body["model"] == "groq/llama-3.1-8b-instant"
         assert forwarded_body["messages"][0]["content"] == "say hi"
@@ -360,7 +348,9 @@ class _CapturingSession:
         )
 
 
-def _build_streaming_sse_body(chunks: list[str], *, final_usage: dict[str, int] | None = None) -> str:
+def _build_streaming_sse_body(
+    chunks: list[str], *, final_usage: dict[str, int] | None = None
+) -> str:
     """Synthesize an OpenAI-shape SSE body: one ``data:`` frame per
     content delta plus a final frame with ``finish_reason=stop`` and
     the optional usage block, then ``[DONE]``."""
@@ -465,9 +455,7 @@ class TestStreamingProgressNotifications:
                     bearer="pn_test_xyz",
                     body={
                         "model": "groq/llama-3.1-8b-instant",
-                        "messages": [
-                            {"role": "user", "content": "say hi"}
-                        ],
+                        "messages": [{"role": "user", "content": "say hi"}],
                     },
                     progress_token="prog-abc",
                 )
@@ -502,10 +490,7 @@ class TestStreamingProgressNotifications:
         assert payload["object"] == "chat.completion"
         assert payload["id"] == "chatcmpl-test-stream"
         assert payload["model"] == "groq/llama-3.1-8b-instant"
-        assert (
-            payload["choices"][0]["message"]["content"]
-            == "Hello, world!"
-        )
+        assert payload["choices"][0]["message"]["content"] == "Hello, world!"
         assert payload["choices"][0]["finish_reason"] == "stop"
         # Usage block preserved end-to-end.
         assert payload["usage"]["total_tokens"] == 9
@@ -556,9 +541,7 @@ class TestStreamingProgressNotifications:
                         name="pronaos.chat",
                         arguments={
                             "model": "groq/llama-3.1-8b-instant",
-                            "messages": [
-                                {"role": "user", "content": "say hi"}
-                            ],
+                            "messages": [{"role": "user", "content": "say hi"}],
                         },
                     ),
                 )
@@ -579,9 +562,7 @@ class TestStreamingProgressNotifications:
         # The non-streaming path does NOT stamp ``pronaos.mcp_streamed``
         # — that marker only appears on responses synthesized from the
         # streaming branch.
-        assert "pronaos" not in payload or "mcp_streamed" not in payload.get(
-            "pronaos", {}
-        )
+        assert "pronaos" not in payload or "mcp_streamed" not in payload.get("pronaos", {})
 
     @pytest.mark.asyncio
     async def test_streaming_branch_forces_stream_true_on_upstream(self) -> None:

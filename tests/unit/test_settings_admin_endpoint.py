@@ -25,9 +25,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -39,9 +37,7 @@ async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no
 @pytest.mark.asyncio
 async def test_settings_get_returns_shape(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/settings", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/settings", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     body = r.json()
     expected = {
@@ -65,9 +61,7 @@ async def test_settings_get_returns_shape(auth_setup) -> None:  # type: ignore[n
 @pytest.mark.asyncio
 async def test_settings_no_secrets_in_response(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/settings", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/settings", headers=_auth(auth_setup.api_key))
     body = r.json()
     # groq and anthropic keys are set in conftest — response must NOT
     # include them (only configured=true/false).
@@ -80,9 +74,7 @@ async def test_settings_no_secrets_in_response(auth_setup) -> None:  # type: ign
 async def test_settings_reflects_configured_providers(auth_setup) -> None:  # type: ignore[no-untyped-def]
     """conftest sets GROQ + ANTHROPIC + AWS env vars → those must be True."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/settings", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/settings", headers=_auth(auth_setup.api_key))
     body = r.json()
     # Both GROQ_API_KEY and ANTHROPIC_API_KEY set in conftest.
     assert body["groq_configured"] is True
@@ -93,9 +85,7 @@ async def test_settings_reflects_configured_providers(auth_setup) -> None:  # ty
 
 @pytest.mark.asyncio
 async def test_settings_get_requires_admin_usage(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    r = await auth_setup.client.get(
-        "/v1/admin/settings", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/settings", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403
 
 

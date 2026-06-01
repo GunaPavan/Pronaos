@@ -30,9 +30,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -40,9 +38,7 @@ async def _set_allowed_models(  # type: ignore[no-untyped-def]
     sm, team_id: str, allowed: list[str] | None
 ) -> None:
     async with sm() as session:
-        await session.execute(
-            update(Team).where(Team.id == team_id).values(allowed_models=allowed)
-        )
+        await session.execute(update(Team).where(Team.id == team_id).values(allowed_models=allowed))
         await session.commit()
 
 
@@ -54,9 +50,7 @@ async def _set_allowed_models(  # type: ignore[no-untyped-def]
 @pytest.mark.asyncio
 async def test_models_endpoint_returns_catalog_shape(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     body = r.json()
     assert "items" in body and isinstance(body["items"], list)
@@ -83,9 +77,7 @@ async def test_models_endpoint_requires_admin_usage_scope(  # type: ignore[no-un
     auth_setup,
 ) -> None:
     """Default seeded key only has chat:write — must 403."""
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403, r.text
     detail = r.json()["detail"]
     # Match the standard scope-missing detail shape used by other endpoints.
@@ -105,9 +97,7 @@ async def test_models_endpoint_includes_anthropic_native(auth_setup) -> None:  #
     """Anthropic isn't a catalog entry but its three models must still
     appear, populated from the native adapter's pricing dict."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     fqmns = {row["fqmn"] for row in r.json()["items"]}
     assert "anthropic/claude-opus-4-7" in fqmns
     assert "anthropic/claude-sonnet-4-6" in fqmns
@@ -118,9 +108,7 @@ async def test_models_endpoint_includes_anthropic_native(auth_setup) -> None:  #
 async def test_models_endpoint_includes_groq_catalog(auth_setup) -> None:  # type: ignore[no-untyped-def]
     """Groq catalog models with capability flags carry through unchanged."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     items = {row["fqmn"]: row for row in r.json()["items"]}
     llama8b = items.get("groq/llama-3.1-8b-instant")
     assert llama8b is not None
@@ -145,9 +133,7 @@ async def test_models_endpoint_marks_provider_configured(  # type: ignore[no-unt
     rows should report configured=true. Cohere has no key in the test
     env → its rows must report configured=false."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     rows = r.json()["items"]
     by_provider = {row["provider"] for row in rows}
     assert "groq" in by_provider
@@ -173,9 +159,7 @@ async def test_models_endpoint_no_allowlist_marks_everything_allowed(  # type: i
     """Team.allowed_models is NULL by default — every fqmn must report
     allowed=true."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     assert all(row["allowed"] for row in r.json()["items"])
 
 
@@ -189,9 +173,7 @@ async def test_models_endpoint_respects_team_allowlist(auth_setup) -> None:  # t
         ["groq/llama-3.1-8b-instant"],
     )
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     rows = r.json()["items"]
     allowed_rows = [row for row in rows if row["allowed"]]
     assert len(allowed_rows) == 1
@@ -211,9 +193,7 @@ async def test_models_endpoint_sorts_allowed_configured_first(  # type: ignore[n
     but-unconfigured, then disallowed. Inside each bucket items are
     alphabetical so the UI dropdown reads sensibly."""
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/models", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/models", headers=_auth(auth_setup.api_key))
     items = r.json()["items"]
 
     # Find the index where ``allowed && configured`` ends. Every item up
@@ -231,9 +211,5 @@ async def test_models_endpoint_sorts_allowed_configured_first(  # type: ignore[n
 
     # Inside each bucket the fqmns are alphabetical.
     for bucket_id in (0, 1, 2):
-        bucket_fqmns = [
-            it["fqmn"] for it, b in zip(items, buckets, strict=True) if b == bucket_id
-        ]
-        assert bucket_fqmns == sorted(bucket_fqmns), (
-            f"bucket {bucket_id} must be alphabetical"
-        )
+        bucket_fqmns = [it["fqmn"] for it, b in zip(items, buckets, strict=True) if b == bucket_id]
+        assert bucket_fqmns == sorted(bucket_fqmns), f"bucket {bucket_id} must be alphabetical"

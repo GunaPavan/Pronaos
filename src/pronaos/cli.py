@@ -137,16 +137,11 @@ def doctor(
             n_warn = sum(1 for g in report.gates if g.verdict == Verdict.WARN)
             n_skip = sum(1 for g in report.gates if g.verdict == Verdict.SKIP)
             typer.echo("")
-            typer.echo(
-                f"summary: {n_pass} pass / {n_fail} fail / "
-                f"{n_warn} warn / {n_skip} skip"
-            )
+            typer.echo(f"summary: {n_pass} pass / {n_fail} fail / {n_warn} warn / {n_skip} skip")
             if report.has_fail():
                 typer.echo("VERDICT: gateway has at least one FAILing gate", err=True)
             elif report.has_warn() and strict:
-                typer.echo(
-                    "VERDICT: --strict in effect; WARN treated as FAIL", err=True
-                )
+                typer.echo("VERDICT: --strict in effect; WARN treated as FAIL", err=True)
             else:
                 typer.echo("VERDICT: gateway is healthy")
         # Silence unused-import warning when probe is off.
@@ -2129,8 +2124,7 @@ def team_set_tool_budget(
 
                 if not entry:
                     typer.echo(
-                        "error: nothing to do; pass --limit, --reset, --remove, "
-                        "or --clear",
+                        "error: nothing to do; pass --limit, --reset, --remove, or --clear",
                         err=True,
                     )
                     raise typer.Exit(code=2)
@@ -2221,9 +2215,7 @@ def team_set_pii_tokenization(
                     raise typer.Exit(code=1)
 
                 if show:
-                    typer.echo(
-                        f"pii_tokenization_enabled: {team.pii_tokenization_enabled}"
-                    )
+                    typer.echo(f"pii_tokenization_enabled: {team.pii_tokenization_enabled}")
                     typer.echo(f"pii_token_ttl_seconds:    {team.pii_token_ttl_seconds}")
                     return
 
@@ -2231,9 +2223,7 @@ def team_set_pii_tokenization(
                     typer.echo("error: --enable and --disable are mutually exclusive", err=True)
                     raise typer.Exit(code=2)
                 if not enable and not disable and ttl is None:
-                    typer.echo(
-                        "error: pass --enable, --disable, --ttl, or --show", err=True
-                    )
+                    typer.echo("error: pass --enable, --disable, --ttl, or --show", err=True)
                     raise typer.Exit(code=2)
 
                 if enable:
@@ -2467,9 +2457,7 @@ def team_set_quality_monitor(
 
                 if sampling_rate is not None:
                     if not 0.0 <= sampling_rate <= 1.0:
-                        typer.echo(
-                            "error: --sampling-rate must be in [0.0, 1.0]", err=True
-                        )
+                        typer.echo("error: --sampling-rate must be in [0.0, 1.0]", err=True)
                         raise typer.Exit(code=2)
                     team.quality_sampling_rate = sampling_rate
                 if clear_judge:
@@ -2563,9 +2551,7 @@ def team_set_image_cap(
                     typer.echo("error: --max-bytes must be >= 0", err=True)
                     raise typer.Exit(code=2)
                 team.max_image_bytes = max_bytes
-                typer.echo(
-                    f"ok\t{id}\tmax_image_bytes={team.max_image_bytes}"
-                )
+                typer.echo(f"ok\t{id}\tmax_image_bytes={team.max_image_bytes}")
         finally:
             await engine.dispose()
 
@@ -2641,9 +2627,7 @@ def team_set_batches(
                     typer.echo(f"ok\t{id}\tbatches_enabled=false")
                     return
 
-                typer.echo(
-                    "error: pass --enable, --disable, or --show", err=True
-                )
+                typer.echo("error: pass --enable, --disable, or --show", err=True)
                 raise typer.Exit(code=2)
         finally:
             await engine.dispose()
@@ -2746,10 +2730,7 @@ def batch_show(batch_id: str) -> None:
                     f"request_counts: {row.completed_count} completed / "
                     f"{row.failed_count} failed / {row.request_count} total"
                 )
-                typer.echo(
-                    f"tokens: prompt={row.prompt_tokens} "
-                    f"completion={row.completion_tokens}"
-                )
+                typer.echo(f"tokens: prompt={row.prompt_tokens} completion={row.completion_tokens}")
                 typer.echo(f"cost_hcents: {row.cost_hcents}")
                 typer.echo(f"created_at: {row.created_at.isoformat()}")
                 if row.in_progress_at:

@@ -73,9 +73,7 @@ log = get_logger(__name__)
 # validates the API key; read by ``call_tool`` when constructing the
 # loopback HTTP request. ContextVar gives per-asyncio-task isolation —
 # concurrent MCP connections never see each other's tokens.
-_BEARER_CTX: ContextVar[str | None] = ContextVar(
-    "pronaos_mcp_bearer_token", default=None
-)
+_BEARER_CTX: ContextVar[str | None] = ContextVar("pronaos_mcp_bearer_token", default=None)
 
 
 def current_bearer_token() -> str | None:
@@ -123,7 +121,7 @@ _CHAT_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "Fully-qualified model name (``provider/model``) or the "
-                "sentinel ``\"auto\"`` to let the team's routing strategy pick."
+                'sentinel ``"auto"`` to let the team\'s routing strategy pick.'
             ),
         },
         "messages": {
@@ -247,7 +245,7 @@ class PronaosMcpServer:
                         "Returns the OpenAI-shape ChatCompletion response as "
                         "JSON. All gateway features (auth, quotas, guardrails, "
                         "caching, routing, audit logging) apply automatically. "
-                        "Pass ``model=\"auto\"`` to let the team's routing "
+                        'Pass ``model="auto"`` to let the team\'s routing '
                         "strategy pick."
                     ),
                     inputSchema=_CHAT_INPUT_SCHEMA,
@@ -276,9 +274,7 @@ class PronaosMcpServer:
         # right REST endpoint based on tool name. Each handler reads
         # the bearer-token ContextVar and forwards via loopback HTTP.
         @self._mcp.call_tool()  # type: ignore[untyped-decorator]
-        async def _call_tool(
-            name: str, arguments: dict[str, Any]
-        ) -> list[TextContent]:
+        async def _call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             bearer = current_bearer_token()
             if not bearer:
                 # The SSE handler must have set this before invoking
@@ -500,17 +496,11 @@ class PronaosMcpServer:
                         # carries it. Anthropic / OpenAI SSE shapes
                         # both put these on every chunk; we take the
                         # first observation defensively.
-                        if completion_id is None and isinstance(
-                            chunk.get("id"), str
-                        ):
+                        if completion_id is None and isinstance(chunk.get("id"), str):
                             completion_id = chunk["id"]
-                        if created is None and isinstance(
-                            chunk.get("created"), int
-                        ):
+                        if created is None and isinstance(chunk.get("created"), int):
                             created = chunk["created"]
-                        if model is None and isinstance(
-                            chunk.get("model"), str
-                        ):
+                        if model is None and isinstance(chunk.get("model"), str):
                             model = chunk["model"]
 
                         # Walk the choices array (OpenAI-shape — index 0
@@ -556,9 +546,7 @@ class PronaosMcpServer:
                 # notifications already sent stay valid — the client
                 # can choose to use them or discard them based on the
                 # final result's shape.
-                record_mcp_streaming_session(
-                    transport=self._transport, result="mid_stream_error"
-                )
+                record_mcp_streaming_session(transport=self._transport, result="mid_stream_error")
                 log.exception("mcp.streaming.mid_stream_error")
                 error_payload = {
                     "error": {

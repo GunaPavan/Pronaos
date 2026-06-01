@@ -291,9 +291,7 @@ class OpenAICompatibleProvider(Provider):
                         # completion_tokens — no cost-math change.
                         comp_details = usage.get("completion_tokens_details") or {}
                         if isinstance(comp_details, dict):
-                            reasoning_tokens = int(
-                                comp_details.get("reasoning_tokens") or 0
-                            )
+                            reasoning_tokens = int(comp_details.get("reasoning_tokens") or 0)
         except httpx.TimeoutException as e:
             raise UpstreamTimeoutError(f"{self._provider_key}: upstream timeout") from e
         except httpx.RequestError as e:
@@ -322,9 +320,7 @@ class OpenAICompatibleProvider(Provider):
         non_cached_prompt = max(0, prompt_tokens - cache_read_tokens)
 
         # Phase 56: assemble accumulated reasoning_content (DeepSeek R1).
-        reasoning_content = (
-            "".join(reasoning_content_buf) if reasoning_content_buf else None
-        )
+        reasoning_content = "".join(reasoning_content_buf) if reasoning_content_buf else None
 
         yield ChatCompletionChunk(
             content_delta="",

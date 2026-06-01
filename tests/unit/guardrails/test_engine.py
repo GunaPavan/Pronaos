@@ -293,10 +293,6 @@ def test_tokenize_different_tenants_get_different_tokens() -> None:
         rules=[StubRule("pii.email", "a@b.c")],
         policy={"pii.email": GuardrailAction.TOKENIZE},
     )
-    v1 = engine.scan_ingress(
-        "a@b.c", tenant_id="alice", tokenization_enabled=True
-    )
-    v2 = engine.scan_ingress(
-        "a@b.c", tenant_id="bob", tokenization_enabled=True
-    )
+    v1 = engine.scan_ingress("a@b.c", tenant_id="alice", tokenization_enabled=True)
+    v2 = engine.scan_ingress("a@b.c", tenant_id="bob", tokenization_enabled=True)
     assert v1.tokenizations != v2.tokenizations

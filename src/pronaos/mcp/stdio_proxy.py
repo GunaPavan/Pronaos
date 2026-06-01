@@ -72,13 +72,10 @@ def _resolve_bearer_token(args: argparse.Namespace) -> str:
             token = Path(args.api_key_file).expanduser().read_text(encoding="utf-8").strip()
         except OSError as e:
             raise SystemExit(
-                f"pronaos-mcp-proxy: cannot read --api-key-file "
-                f"{args.api_key_file!r}: {e}"
+                f"pronaos-mcp-proxy: cannot read --api-key-file {args.api_key_file!r}: {e}"
             ) from e
         if not token:
-            raise SystemExit(
-                f"pronaos-mcp-proxy: --api-key-file {args.api_key_file!r} is empty"
-            )
+            raise SystemExit(f"pronaos-mcp-proxy: --api-key-file {args.api_key_file!r} is empty")
         return token
     raise SystemExit(
         "pronaos-mcp-proxy: no bearer token supplied. Pass --api-key <token> "
@@ -142,9 +139,7 @@ def main(argv: list[str] | None = None) -> NoReturn:
     args = _build_parser().parse_args(argv)
     bearer_token = _resolve_bearer_token(args)
     try:
-        asyncio.run(
-            _serve(gateway_url=args.gateway_url, bearer_token=bearer_token)
-        )
+        asyncio.run(_serve(gateway_url=args.gateway_url, bearer_token=bearer_token))
     except KeyboardInterrupt:
         # Clean exit when the MCP client (Claude Code etc.) closes the
         # subprocess via SIGINT. asyncio's runner raises this on Windows

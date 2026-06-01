@@ -96,8 +96,7 @@ class DoctorReport:
     def to_dict(self) -> dict[str, object]:
         return {
             "gates": [
-                {"name": g.name, "verdict": g.verdict.value, "detail": g.detail}
-                for g in self.gates
+                {"name": g.name, "verdict": g.verdict.value, "detail": g.detail} for g in self.gates
             ],
             "summary": {
                 "pass": sum(1 for g in self.gates if g.verdict == Verdict.PASS),
@@ -145,8 +144,7 @@ async def gate_secret_key(settings: Settings) -> DoctorGateResult:
     if len(settings.secret_key) < 32:
         return _warn(
             name,
-            f"PRONAOS_SECRET_KEY is only {len(settings.secret_key)} chars; "
-            "32+ recommended",
+            f"PRONAOS_SECRET_KEY is only {len(settings.secret_key)} chars; 32+ recommended",
         )
     return _ok(name, f"set ({len(settings.secret_key)} chars)")
 
@@ -194,9 +192,7 @@ async def gate_db_migrations(settings: Settings) -> DoctorGateResult:
         try:
             async with engine.connect() as conn:
                 # Look up the current revision in alembic_version.
-                result = await conn.execute(
-                    text("SELECT version_num FROM alembic_version")
-                )
+                result = await conn.execute(text("SELECT version_num FROM alembic_version"))
                 row = result.scalar_one_or_none()
         finally:
             await engine.dispose()
@@ -215,8 +211,7 @@ async def gate_db_migrations(settings: Settings) -> DoctorGateResult:
     if row != latest:
         return _fail(
             name,
-            f"current={row}, latest on disk={latest} — "
-            "run `pronaos-cli db upgrade`",
+            f"current={row}, latest on disk={latest} — run `pronaos-cli db upgrade`",
         )
     return _ok(name, f"at head ({row})")
 
@@ -278,7 +273,7 @@ async def gate_core_tables(settings: Settings) -> DoctorGateResult:
                         # nosec / S608 not applicable: ``t`` comes from a
                         # hardcoded allowlist defined just above, never
                         # from user input.
-                        await conn.execute(text(f"SELECT 1 FROM {t} LIMIT 0"))  # noqa: S608
+                        await conn.execute(text(f"SELECT 1 FROM {t} LIMIT 0"))  # noqa: S608  # nosec B608
                     except Exception:
                         missing.append(t)
         finally:
@@ -312,8 +307,7 @@ async def gate_at_least_one_tenant(settings: Settings) -> DoctorGateResult:
     if n == 0:
         return _warn(
             name,
-            "no tenants seeded; run `pronaos-cli tenant create` before the "
-            "first chat call",
+            "no tenants seeded; run `pronaos-cli tenant create` before the first chat call",
         )
     return _ok(name, f"{n} tenant(s)")
 
@@ -429,9 +423,7 @@ async def gate_provider_keys(settings: Settings) -> DoctorGateResult:
     return _ok(name, f"{len(configured)} provider(s): {', '.join(configured)}")
 
 
-async def gate_provider_probe(
-    settings: Settings, *, provider_key: str
-) -> DoctorGateResult:
+async def gate_provider_probe(settings: Settings, *, provider_key: str) -> DoctorGateResult:
     """OPT-IN. Probes one provider by listing models (or equivalent).
     Costs zero tokens — no chat call is made. Returns SKIP if the
     provider isn't configured."""
@@ -467,8 +459,7 @@ async def gate_provider_probe(
     # auth isn't outright rejected.
     return _warn(
         name,
-        f"GET /v1/models returned {r.status_code} — not a hard failure but "
-        "couldn't confirm",
+        f"GET /v1/models returned {r.status_code} — not a hard failure but couldn't confirm",
     )
 
 
@@ -598,9 +589,7 @@ async def run_doctor(
             if not getattr(settings, entry.settings_attr, None):
                 continue
             try:
-                results.append(
-                    await gate_provider_probe(settings, provider_key=key)
-                )
+                results.append(await gate_provider_probe(settings, provider_key=key))
             except Exception as e:
                 results.append(
                     DoctorGateResult(

@@ -104,13 +104,9 @@ class _ServiceAccountKey:
         client_email = data.get("client_email")
         private_key = data.get("private_key")
         if not isinstance(client_email, str) or not client_email:
-            raise VertexAuthError(
-                "service-account JSON missing 'client_email' field"
-            )
+            raise VertexAuthError("service-account JSON missing 'client_email' field")
         if not isinstance(private_key, str) or "BEGIN" not in private_key:
-            raise VertexAuthError(
-                "service-account JSON missing or malformed 'private_key' field"
-            )
+            raise VertexAuthError("service-account JSON missing or malformed 'private_key' field")
         token_uri = data.get("token_uri") or _DEFAULT_TOKEN_URI
         return cls(
             client_email=client_email,
@@ -152,18 +148,12 @@ def _sign_assertion(
         "iat": now_unix,
         "exp": now_unix + ttl_seconds,
     }
-    header_b64 = _b64url_no_padding(
-        json.dumps(header, separators=(",", ":")).encode("utf-8")
-    )
-    claims_b64 = _b64url_no_padding(
-        json.dumps(claims, separators=(",", ":")).encode("utf-8")
-    )
+    header_b64 = _b64url_no_padding(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    claims_b64 = _b64url_no_padding(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
     signing_input = f"{header_b64}.{claims_b64}".encode()
 
     try:
-        private_key = serialization.load_pem_private_key(
-            key.private_key_pem, password=None
-        )
+        private_key = serialization.load_pem_private_key(key.private_key_pem, password=None)
     except Exception as e:
         raise VertexAuthError(f"failed to parse SA private key: {e}") from e
     if not isinstance(private_key, rsa.RSAPrivateKey):
@@ -173,9 +163,7 @@ def _sign_assertion(
             f"{type(private_key).__name__}"
         )
 
-    signature = private_key.sign(
-        signing_input, padding.PKCS1v15(), hashes.SHA256()
-    )
+    signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     sig_b64 = _b64url_no_padding(signature)
     return f"{header_b64}.{claims_b64}.{sig_b64}"
 
@@ -223,9 +211,7 @@ class VertexAuth:
         except json.JSONDecodeError as e:
             raise VertexAuthError(f"VERTEX_SERVICE_ACCOUNT_JSON is not valid JSON: {e}") from e
         if not isinstance(data, dict):
-            raise VertexAuthError(
-                "VERTEX_SERVICE_ACCOUNT_JSON top-level value must be an object"
-            )
+            raise VertexAuthError("VERTEX_SERVICE_ACCOUNT_JSON top-level value must be an object")
         return cls(service_account=_ServiceAccountKey.from_dict(data), **kwargs)
 
     @classmethod
@@ -271,21 +257,15 @@ class VertexAuth:
                 # and operator-actionable (typically "invalid_grant"
                 # with a clock-skew message).
                 detail = resp.text[:500]
-                raise VertexAuthError(
-                    f"GCP token exchange failed: {resp.status_code} {detail}"
-                )
+                raise VertexAuthError(f"GCP token exchange failed: {resp.status_code} {detail}")
             try:
                 payload = resp.json()
             except ValueError as e:
-                raise VertexAuthError(
-                    "GCP token exchange returned non-JSON body"
-                ) from e
+                raise VertexAuthError("GCP token exchange returned non-JSON body") from e
             access_token = payload.get("access_token")
             expires_in = payload.get("expires_in")
             if not isinstance(access_token, str) or not access_token:
-                raise VertexAuthError(
-                    "GCP token exchange response missing 'access_token'"
-                )
+                raise VertexAuthError("GCP token exchange response missing 'access_token'")
             if not isinstance(expires_in, int) or expires_in <= 0:
                 # Default to 1 hour if the response omits expires_in
                 # (the spec says it's optional). Conservative — better

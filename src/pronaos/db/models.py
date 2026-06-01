@@ -260,9 +260,7 @@ class Team(Base):
     # ``DEFAULT_PROMPT_CACHE_MIN_HIT_RATE`` (0.1). The 10% default is
     # the "this model's caching is meaningful enough to load-bear"
     # threshold; below 10% the savings adjustment is in the noise.
-    prompt_cache_min_hit_rate: Mapped[float | None] = mapped_column(
-        nullable=True, default=None
-    )
+    prompt_cache_min_hit_rate: Mapped[float | None] = mapped_column(nullable=True, default=None)
 
     # ---- Reasoning-aware routing thresholds (Phase 57) ----
     # When ``routing_strategy == reasoning-aware-cheapest`` the scorer
@@ -285,9 +283,7 @@ class Team(Base):
     # excluded from the candidate pool entirely (treated as too
     # reasoning-heavy regardless of base price). NULL → no exclusion
     # cap; the scorer ranks purely by effective cost.
-    reasoning_aware_max_ratio: Mapped[float | None] = mapped_column(
-        nullable=True, default=None
-    )
+    reasoning_aware_max_ratio: Mapped[float | None] = mapped_column(nullable=True, default=None)
 
     # ---- Tool-call result cache (Phase 49) ----
     # Caches tool execution results by (team_id, tool_name,
@@ -305,9 +301,7 @@ class Team(Base):
     # effects (``send_email``, ``delete_record``) or time-sensitive
     # results (``get_stock_price``) MUST stay uncached — operator
     # owns that policy decision per-team.
-    tool_result_cache_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    tool_result_cache_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # TTL applied when cache records are written; NULL → scorer
     # default (1 hour). Tool results age out of correctness rapidly,
     # so the default is conservative; operators raise it for very
@@ -330,9 +324,7 @@ class Team(Base):
     # command execution), so operators need to explicitly opt teams
     # in. A future phase can add a fine-grained per-command allowlist;
     # v1 is just enable/disable.
-    mcp_client_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    mcp_client_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # ---- Async batches API (Phase 59) ----
     # OpenAI + Anthropic both ship async batch APIs at 50% of synchronous
@@ -341,9 +333,7 @@ class Team(Base):
     # in the same monthly token budget as sync calls (half-priced per
     # call) but operators want explicit per-team opt-in because batch
     # workloads can be large + the FinOps shape differs.
-    batches_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    batches_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # ---- Request hedging (Phase 27) ----
     # Tail-latency reduction. When ``hedge_delay_ms`` is set, the failover
@@ -430,12 +420,8 @@ class Team(Base):
     # the gateway reverses the tokens in the response before returning
     # to the client. ``pii_token_ttl_seconds`` is the TTL on the Redis
     # mapping; NULL falls back to the gateway default (3600s).
-    pii_tokenization_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
-    pii_token_ttl_seconds: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, default=None
-    )
+    pii_tokenization_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    pii_token_ttl_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     # Phase 39 — structured output validation + auto-retry.
     # ``structured_output_max_retries`` caps how many times the chat
@@ -447,9 +433,7 @@ class Team(Base):
     # is forwarded to the provider's native structured-output mechanism
     # (OpenAI ``response_format``); when False, prompt-injected schema
     # is used for every provider regardless of capability.
-    structured_output_max_retries: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=2
-    )
+    structured_output_max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     structured_output_provider_native: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )
@@ -463,9 +447,7 @@ class Team(Base):
     # like gpt-4o-mini). ``model_degradation_state`` is the per-model
     # degradation rollup the scorer reads when ``model="auto"``
     # routing fires — shape documented in the migration.
-    quality_sampling_rate: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.0
-    )
+    quality_sampling_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     quality_judge_model: Mapped[str | None] = mapped_column(
         String(255), nullable=True, default=None
     )
@@ -477,9 +459,7 @@ class Team(Base):
     # base64 image parts in a single request must not exceed this value.
     # NULL = no cap (existing behaviour preserved for text-only teams).
     # HTTPS image URLs are NOT counted — the gateway never fetches them.
-    max_image_bytes: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, default=None
-    )
+    max_image_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="teams")
     api_keys: Mapped[list[ApiKey]] = relationship(
@@ -736,9 +716,7 @@ class QualitySample(Base):
     __tablename__ = "quality_samples"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
-    ts: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
-    )
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     # Soft references (no FK — samples survive tenant/team deletion
     # so historical-quality dashboards keep working after a team is
@@ -828,9 +806,7 @@ class Batch(Base):
     # (during the brief moment when validation rejected the body
     # before reaching the provider).
     provider_batch_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="validating"
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="validating")
     endpoint: Mapped[str] = mapped_column(String(64), nullable=False)
     completion_window: Mapped[str] = mapped_column(String(16), nullable=False)
 
@@ -841,9 +817,7 @@ class Batch(Base):
     # Aggregate token + cost totals. Populated when the batch completes
     # and the worker parses the result JSONL. Cost is at the 50% rate.
     prompt_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    completion_tokens: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
+    completion_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     cost_hcents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -851,12 +825,8 @@ class Batch(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
-    in_progress_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    in_progress_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # JSONL payloads. Empty string when not yet populated.
     input_payload: Mapped[str] = mapped_column(Text, nullable=False, default="")

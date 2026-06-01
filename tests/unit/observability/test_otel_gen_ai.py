@@ -107,9 +107,7 @@ class TestSpanNameFor:
     def test_bedrock_model_name_with_dots_and_version_preserved(self) -> None:
         """Bedrock model IDs contain dots + colons; the spec doesn't
         forbid them in span names. Make sure we don't sanitise."""
-        out = span_name_for(
-            GEN_AI_OPERATION_CHAT, "anthropic.claude-3-5-haiku-20241022-v1:0"
-        )
+        out = span_name_for(GEN_AI_OPERATION_CHAT, "anthropic.claude-3-5-haiku-20241022-v1:0")
         assert out == "chat anthropic.claude-3-5-haiku-20241022-v1:0"
 
 
@@ -157,9 +155,7 @@ class TestApplyGenAiRequestAttrs:
         # stop_sequences. OTel exporters serialise tuples as arrays.
         assert tuple(attrs["gen_ai.request.stop_sequences"]) == ("\n\n", "END")
 
-    def test_optional_attrs_omitted_when_none(
-        self, exporter: InMemorySpanExporter
-    ) -> None:
+    def test_optional_attrs_omitted_when_none(self, exporter: InMemorySpanExporter) -> None:
         tracer = exporter._provider.get_tracer("test")  # type: ignore[attr-defined]
         with tracer.start_as_current_span("chat gpt-4o") as span:
             apply_gen_ai_request_attrs(
@@ -177,9 +173,7 @@ class TestApplyGenAiRequestAttrs:
         assert "gen_ai.request.top_p" not in attrs
         assert "gen_ai.request.stop_sequences" not in attrs
 
-    def test_temperature_coerced_to_float(
-        self, exporter: InMemorySpanExporter
-    ) -> None:
+    def test_temperature_coerced_to_float(self, exporter: InMemorySpanExporter) -> None:
         """OTel rejects mixed int/float in numeric attributes for
         some exporters; we coerce to float to avoid the trap."""
         tracer = exporter._provider.get_tracer("test")  # type: ignore[attr-defined]
@@ -222,9 +216,7 @@ class TestApplyGenAiResponseAttrs:
         assert attrs["gen_ai.response.id"] == "chatcmpl-abc123"
         assert attrs["gen_ai.response.model"] == "gpt-4o-2024-08-06"
 
-    def test_finish_reasons_array_even_single_choice(
-        self, exporter: InMemorySpanExporter
-    ) -> None:
+    def test_finish_reasons_array_even_single_choice(self, exporter: InMemorySpanExporter) -> None:
         """A single-choice completion still gets a one-element array
         for finish_reasons; the spec is non-negotiable about this."""
         tracer = exporter._provider.get_tracer("test")  # type: ignore[attr-defined]

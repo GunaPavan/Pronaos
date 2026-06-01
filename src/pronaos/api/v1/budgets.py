@@ -77,16 +77,13 @@ class BudgetUpdateBody(BaseModel):
         default=None,
         ge=0,
         description=(
-            "Tokens per calendar-month period. `null` = unlimited; "
-            "omit field to leave unchanged"
+            "Tokens per calendar-month period. `null` = unlimited; omit field to leave unchanged"
         ),
     )
     monthly_cost_hcents_budget: int | None = Field(
         default=None,
         ge=0,
-        description=(
-            "Cost in hundredths-of-a-cent per period. `null` = unlimited"
-        ),
+        description=("Cost in hundredths-of-a-cent per period. `null` = unlimited"),
     )
 
     # Distinguishing "omitted" from "null" needs model_extra metadata —
@@ -192,8 +189,7 @@ async def get_usage_timeseries(
         str,
         Query(
             description=(
-                "Bucket size — 'hour' or 'day'. Determines the "
-                "granularity of the response."
+                "Bucket size — 'hour' or 'day'. Determines the granularity of the response."
             ),
             pattern="^(hour|day)$",
         ),

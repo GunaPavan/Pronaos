@@ -133,9 +133,7 @@ class TestValidateResponseContent:
 
     def test_additional_property_fails_when_disallowed(self) -> None:
         # additionalProperties: False on the schema → extra fields fail.
-        out = validate_response_content(
-            '{"name": "Frank", "age": 50, "extra": "field"}', _SCHEMA
-        )
+        out = validate_response_content('{"name": "Frank", "age": 50, "extra": "field"}', _SCHEMA)
         assert out.passed is False
         assert out.errors is not None
 

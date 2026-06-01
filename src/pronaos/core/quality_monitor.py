@@ -215,9 +215,7 @@ async def check_degradation(
     baseline_samples = baseline_entry.get("samples")  # list[float] or None
 
     # ---- Step 2: pull recent samples for this team+model ----
-    recent_scores = await _fetch_recent_scores(
-        session, team_id=team_id, model=model, limit=window
-    )
+    recent_scores = await _fetch_recent_scores(session, team_id=team_id, model=model, limit=window)
     n_recent = len(recent_scores)
     if n_recent < min_recent:
         # Not enough recent data to trust the t-test. Don't change
@@ -265,9 +263,7 @@ async def check_degradation(
         )
 
     # Two-sided p halved when direction matches our hypothesis.
-    one_sided_p = (
-        (result.p_value / 2.0) if recent_mean < baseline_mean else 1.0
-    )
+    one_sided_p = (result.p_value / 2.0) if recent_mean < baseline_mean else 1.0
 
     # ---- Step 5: decide the transition ----
     state = team.model_degradation_state or {}
@@ -311,9 +307,7 @@ async def check_degradation(
             }
         try:
             await session.execute(
-                update(Team)
-                .where(Team.id == team_id)
-                .values(model_degradation_state=new_state)
+                update(Team).where(Team.id == team_id).values(model_degradation_state=new_state)
             )
         except Exception as e:
             log.warning(

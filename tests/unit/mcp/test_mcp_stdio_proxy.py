@@ -61,9 +61,7 @@ class TestResolveBearerToken:
         assert "empty" in str(exc_info.value)
 
     def test_missing_file_exits_with_message(self, tmp_path: Path) -> None:
-        ns = argparse.Namespace(
-            api_key=None, api_key_file=str(tmp_path / "doesnotexist")
-        )
+        ns = argparse.Namespace(api_key=None, api_key_file=str(tmp_path / "doesnotexist"))
         with pytest.raises(SystemExit) as exc_info:
             _resolve_bearer_token(ns)
         assert "cannot read" in str(exc_info.value)
@@ -83,7 +81,5 @@ class TestParser:
     def test_api_key_and_file_mutually_exclusive(self) -> None:
         # argparse exits 2 on conflicting mutually-exclusive args.
         with pytest.raises(SystemExit) as exc_info:
-            _build_parser().parse_args(
-                ["--api-key", "x", "--api-key-file", "/tmp/y"]
-            )
+            _build_parser().parse_args(["--api-key", "x", "--api-key-file", "/tmp/y"])
         assert exc_info.value.code == 2

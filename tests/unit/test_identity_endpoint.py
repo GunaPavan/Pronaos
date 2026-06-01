@@ -30,9 +30,7 @@ async def _grant_identity_scope(sm, key_id: str) -> None:  # type: ignore[no-unt
     the higher scope."""
     async with sm() as session:
         await session.execute(
-            update(ApiKey)
-            .where(ApiKey.id == key_id)
-            .values(scopes="chat:write admin:identity")
+            update(ApiKey).where(ApiKey.id == key_id).values(scopes="chat:write admin:identity")
         )
         await session.commit()
 
@@ -46,9 +44,7 @@ async def _grant_identity_scope(sm, key_id: str) -> None:  # type: ignore[no-unt
 async def test_identity_endpoints_require_admin_identity_scope(auth_setup) -> None:  # type: ignore[no-untyped-def]
     """Default seeded key has only ``chat:write`` → 403 across the
     identity surface."""
-    r = await auth_setup.client.get(
-        "/v1/admin/tenants", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/tenants", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403
     assert "admin:identity" in r.json()["detail"]
 
@@ -66,9 +62,7 @@ async def test_tenant_create_list_get_update_delete_roundtrip(  # type: ignore[n
     headers = _auth(auth_setup.api_key)
 
     # Create.
-    r = await auth_setup.client.post(
-        "/v1/admin/tenants", json={"name": "globex"}, headers=headers
-    )
+    r = await auth_setup.client.post("/v1/admin/tenants", json={"name": "globex"}, headers=headers)
     assert r.status_code == 201, r.text
     created = r.json()
     assert created["name"] == "globex"
@@ -95,9 +89,7 @@ async def test_tenant_create_list_get_update_delete_roundtrip(  # type: ignore[n
     assert r.json()["name"] == "globex-renamed"
 
     # Delete.
-    r = await auth_setup.client.delete(
-        f"/v1/admin/tenants/{new_id}", headers=headers
-    )
+    r = await auth_setup.client.delete(f"/v1/admin/tenants/{new_id}", headers=headers)
     assert r.status_code == 204
 
     # Verify gone.
@@ -149,9 +141,7 @@ async def test_team_crud_roundtrip(auth_setup) -> None:  # type: ignore[no-untyp
     assert r.json()["tenant_id"] == tenant_id
 
     # List, filtered by tenant.
-    r = await auth_setup.client.get(
-        f"/v1/admin/teams?tenant_id={tenant_id}", headers=headers
-    )
+    r = await auth_setup.client.get(f"/v1/admin/teams?tenant_id={tenant_id}", headers=headers)
     assert r.status_code == 200
     team_ids = {t["id"] for t in r.json()}
     assert team_id in team_ids
@@ -168,9 +158,7 @@ async def test_team_crud_roundtrip(auth_setup) -> None:  # type: ignore[no-untyp
     assert r.json()["name"] == "platform-renamed"
 
     # Delete.
-    r = await auth_setup.client.delete(
-        f"/v1/admin/teams/{team_id}", headers=headers
-    )
+    r = await auth_setup.client.delete(f"/v1/admin/teams/{team_id}", headers=headers)
     assert r.status_code == 204
     r = await auth_setup.client.get(f"/v1/admin/teams/{team_id}", headers=headers)
     assert r.status_code == 404
@@ -227,9 +215,7 @@ async def test_key_generate_rejects_invalid_team(auth_setup) -> None:  # type: i
 async def test_key_list_hides_revoked_by_default(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_identity_scope(auth_setup.sm, auth_setup.key_id)
     headers = _auth(auth_setup.api_key)
-    r = await auth_setup.client.get(
-        f"/v1/admin/keys?team_id={auth_setup.team_id}", headers=headers
-    )
+    r = await auth_setup.client.get(f"/v1/admin/keys?team_id={auth_setup.team_id}", headers=headers)
     assert r.status_code == 200
     statuses = [k["status"] for k in r.json()]
     assert all(s == "active" for s in statuses)
@@ -275,9 +261,7 @@ async def test_key_revoke_is_soft_and_blocks_subsequent_auth(  # type: ignore[no
     assert r.status_code != 401, "freshly issued key should authenticate"
 
     # Revoke.
-    r = await auth_setup.client.delete(
-        f"/v1/admin/keys/{new_key_id}", headers=headers
-    )
+    r = await auth_setup.client.delete(f"/v1/admin/keys/{new_key_id}", headers=headers)
     assert r.status_code == 204
 
     # The revoked key now fails auth.
@@ -310,11 +294,7 @@ async def test_revoke_is_idempotent(auth_setup) -> None:  # type: ignore[no-unty
         headers=headers,
     )
     new_key_id = r.json()["id"]
-    r1 = await auth_setup.client.delete(
-        f"/v1/admin/keys/{new_key_id}", headers=headers
-    )
-    r2 = await auth_setup.client.delete(
-        f"/v1/admin/keys/{new_key_id}", headers=headers
-    )
+    r1 = await auth_setup.client.delete(f"/v1/admin/keys/{new_key_id}", headers=headers)
+    r2 = await auth_setup.client.delete(f"/v1/admin/keys/{new_key_id}", headers=headers)
     assert r1.status_code == 204
     assert r2.status_code == 204

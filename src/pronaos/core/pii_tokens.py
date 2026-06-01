@@ -377,9 +377,7 @@ class StreamingDetokenizer:
         if not safe_part:
             return ""
 
-        outcome = await self._store.reverse_text(
-            tenant_id=self._tenant_id, text=safe_part
-        )
+        outcome = await self._store.reverse_text(tenant_id=self._tenant_id, text=safe_part)
         self._reversed_total += outcome.reversed_count
         self._orphaned_total += outcome.orphaned_count
         if outcome.reversed_by_type:
@@ -400,9 +398,7 @@ class StreamingDetokenizer:
         """
         if not self._buffer:
             return ""
-        outcome = await self._store.reverse_text(
-            tenant_id=self._tenant_id, text=self._buffer
-        )
+        outcome = await self._store.reverse_text(tenant_id=self._tenant_id, text=self._buffer)
         self._reversed_total += outcome.reversed_count
         self._orphaned_total += outcome.orphaned_count
         if outcome.reversed_by_type:
@@ -444,9 +440,7 @@ class StreamingDetokenizer:
         We only hold ``[`` that's followed by characters that haven't
         closed the bracket yet.
         """
-        tail_start = (
-            0 if len(text) <= _MAX_TOKEN_LEN - 1 else len(text) - (_MAX_TOKEN_LEN - 1)
-        )
+        tail_start = 0 if len(text) <= _MAX_TOKEN_LEN - 1 else len(text) - (_MAX_TOKEN_LEN - 1)
         # Find the latest ``[`` whose matching ``]`` we haven't seen.
         # Scan from the END to find the last unclosed ``[`` in the
         # tail. If the tail has a ``[`` that's already closed, the
@@ -489,9 +483,7 @@ def tokenize_hits(
     for rule_name, _span, value in hits:
         key = (rule_name, value)
         if key not in value_to_token:
-            value_to_token[key] = make_token(
-                tenant_id=tenant_id, rule_name=rule_name, value=value
-            )
+            value_to_token[key] = make_token(tenant_id=tenant_id, rule_name=rule_name, value=value)
 
     # Apply right-to-left.
     ordered = sorted(hits, key=lambda h: h[1][0], reverse=True)

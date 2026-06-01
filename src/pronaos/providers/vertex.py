@@ -169,11 +169,7 @@ def _build_gemini_body(req: ChatCompletionRequest) -> dict[str, Any]:
             function_declarations.append(
                 {
                     "name": func.get("name") or tool.get("name") or "",
-                    "description": (
-                        func.get("description")
-                        or tool.get("description")
-                        or ""
-                    ),
+                    "description": (func.get("description") or tool.get("description") or ""),
                     "parameters": (
                         func.get("parameters")
                         or tool.get("input_schema")
@@ -219,14 +215,8 @@ def _build_anthropic_on_vertex_body(req: ChatCompletionRequest) -> dict[str, Any
             anthropic_tools.append(
                 {
                     "name": func.get("name") or tool.get("name") or "",
-                    "description": (
-                        func.get("description") or tool.get("description") or ""
-                    ),
-                    "input_schema": (
-                        func.get("parameters")
-                        or tool.get("input_schema")
-                        or {}
-                    ),
+                    "description": (func.get("description") or tool.get("description") or ""),
+                    "input_schema": (func.get("parameters") or tool.get("input_schema") or {}),
                 }
             )
         body["tools"] = anthropic_tools
@@ -241,17 +231,17 @@ def _build_anthropic_on_vertex_body(req: ChatCompletionRequest) -> dict[str, Any
 def _parse_gemini_response(data: dict[str, Any]) -> ChatCompletionChunk:
     """Gemini's non-streaming response shape::
 
-        {
-          "candidates": [{
-            "content": {"role": "model", "parts": [{"text": "..."}]},
-            "finishReason": "STOP" | "MAX_TOKENS" | ...,
-          }],
-          "usageMetadata": {
-            "promptTokenCount": N,
-            "candidatesTokenCount": N,
-            "totalTokenCount": N
-          }
-        }
+    {
+      "candidates": [{
+        "content": {"role": "model", "parts": [{"text": "..."}]},
+        "finishReason": "STOP" | "MAX_TOKENS" | ...,
+      }],
+      "usageMetadata": {
+        "promptTokenCount": N,
+        "candidatesTokenCount": N,
+        "totalTokenCount": N
+      }
+    }
     """
     candidates = data.get("candidates") or []
     text_parts: list[str] = []
@@ -277,9 +267,7 @@ def _parse_gemini_response(data: dict[str, Any]) -> ChatCompletionChunk:
                         "type": "function",
                         "function": {
                             "name": fc.get("name", ""),
-                            "arguments": json.dumps(
-                                fc.get("args") or {}, separators=(",", ":")
-                            ),
+                            "arguments": json.dumps(fc.get("args") or {}, separators=(",", ":")),
                         },
                     }
                 )
@@ -334,9 +322,7 @@ def _parse_anthropic_on_vertex_response(data: dict[str, Any]) -> ChatCompletionC
     for Anthropic-on-Bedrock (kept inline to avoid an inter-adapter
     import cycle)."""
     content_blocks = data.get("content", []) or []
-    text_blocks = [
-        b.get("text", "") for b in content_blocks if b.get("type") == "text"
-    ]
+    text_blocks = [b.get("text", "") for b in content_blocks if b.get("type") == "text"]
     tool_calls: list[dict[str, Any]] = []
     for b in content_blocks:
         if b.get("type") != "tool_use":
@@ -347,9 +333,7 @@ def _parse_anthropic_on_vertex_response(data: dict[str, Any]) -> ChatCompletionC
                 "type": "function",
                 "function": {
                     "name": b.get("name", ""),
-                    "arguments": json.dumps(
-                        b.get("input") or {}, separators=(",", ":")
-                    ),
+                    "arguments": json.dumps(b.get("input") or {}, separators=(",", ":")),
                 },
             }
         )
@@ -436,9 +420,7 @@ def _translate_gemini_stream_event(
                     "type": "function",
                     "function": {
                         "name": fc.get("name", ""),
-                        "arguments": json.dumps(
-                            fc.get("args") or {}, separators=(",", ":")
-                        ),
+                        "arguments": json.dumps(fc.get("args") or {}, separators=(",", ":")),
                     },
                 }
             )
@@ -559,14 +541,8 @@ def _translate_anthropic_on_vertex_stream_event(
             # content_delta (consistent with direct + Bedrock).
             idx = event.get("index")
             frag = delta.get("thinking", "")
-            if (
-                isinstance(idx, int)
-                and isinstance(frag, str)
-                and "thinking_blocks" in state
-            ):
-                state["thinking_blocks"][idx] = (
-                    state["thinking_blocks"].get(idx, "") + frag
-                )
+            if isinstance(idx, int) and isinstance(frag, str) and "thinking_blocks" in state:
+                state["thinking_blocks"][idx] = state["thinking_blocks"].get(idx, "") + frag
         return None
     if etype == "message_delta":
         delta = event.get("delta") or {}
@@ -715,24 +691,12 @@ class VertexProvider(Provider):
             return 0
         publisher = model_with_publisher.partition("/")[0]
         if publisher == "anthropic" and (cache_creation_tokens or cache_read_tokens):
-            input_cost = (
-                prompt_tokens * pricing.input_hcents_per_mtok // 1_000_000
-            )
+            input_cost = prompt_tokens * pricing.input_hcents_per_mtok // 1_000_000
             cache_write_cost = (
-                cache_creation_tokens
-                * pricing.input_hcents_per_mtok
-                * 125
-                // 100_000_000
+                cache_creation_tokens * pricing.input_hcents_per_mtok * 125 // 100_000_000
             )
-            cache_read_cost = (
-                cache_read_tokens
-                * pricing.input_hcents_per_mtok
-                * 10
-                // 100_000_000
-            )
-            output_cost = (
-                completion_tokens * pricing.output_hcents_per_mtok // 1_000_000
-            )
+            cache_read_cost = cache_read_tokens * pricing.input_hcents_per_mtok * 10 // 100_000_000
+            output_cost = completion_tokens * pricing.output_hcents_per_mtok // 1_000_000
             return input_cost + cache_write_cost + cache_read_cost + output_cost
         return (
             prompt_tokens * pricing.input_hcents_per_mtok
@@ -749,8 +713,7 @@ class VertexProvider(Provider):
         dispatch = _PUBLISHERS.get(publisher)
         if dispatch is None:
             raise ProviderError(
-                f"vertex: unsupported publisher {publisher!r} "
-                f"(model={model_with_publisher})",
+                f"vertex: unsupported publisher {publisher!r} (model={model_with_publisher})",
                 status=400,
             )
         body = dispatch.build_body(req)
@@ -793,13 +756,9 @@ class VertexProvider(Provider):
         # uses an URL parameter ``alt=sse``. Handle both branches.
         if publisher == "anthropic":
             body["stream"] = True
-            url = self._endpoint_url(
-                publisher, model, action="streamRawPredict"
-            )
+            url = self._endpoint_url(publisher, model, action="streamRawPredict")
         else:
-            url = self._endpoint_url(
-                publisher, model, action="streamGenerateContent", alt_sse=True
-            )
+            url = self._endpoint_url(publisher, model, action="streamGenerateContent", alt_sse=True)
 
         try:
             headers = await self._auth.authorization_header()
@@ -826,7 +785,7 @@ class VertexProvider(Provider):
                         line = raw_line.strip()
                         if not line.startswith("data:"):
                             continue
-                        payload = line[len("data:"):].strip()
+                        payload = line[len("data:") :].strip()
                         if not payload or payload == "[DONE]":
                             continue
                         try:
@@ -837,9 +796,7 @@ class VertexProvider(Provider):
                         if chunk is not None:
                             yield chunk
             except httpx.TimeoutException as e:
-                raise UpstreamTimeoutError(
-                    "vertex: upstream timeout during streaming"
-                ) from e
+                raise UpstreamTimeoutError("vertex: upstream timeout during streaming") from e
 
         return _gen()
 
@@ -881,11 +838,7 @@ class VertexProvider(Provider):
             if isinstance(err, dict):
                 detail = err.get("message") or resp.text[:200]
             else:
-                detail = (
-                    payload.get("message")
-                    if isinstance(payload, dict)
-                    else resp.text[:200]
-                )
+                detail = payload.get("message") if isinstance(payload, dict) else resp.text[:200]
         except (ValueError, KeyError):
             detail = resp.text[:200]
         status = resp.status_code

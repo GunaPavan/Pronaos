@@ -310,9 +310,7 @@ def _translate_image_url_to_anthropic(part: dict[str, Any]) -> dict[str, Any] | 
 # --------------------------------------------------------------------------- #
 
 
-def estimate_image_tokens(
-    part: ImagePart, *, model: str
-) -> int:
+def estimate_image_tokens(part: ImagePart, *, model: str) -> int:
     """Estimate the token cost of one image for ``model``.
 
     Branches on the model family:

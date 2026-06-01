@@ -361,9 +361,7 @@ def parse_llama_guard_output(text: str) -> LlamaGuardVerdict:
     categories = _extract_categories(raw_categories)
 
     rule_names = tuple(
-        f"{RULE_NAME_PREFIX}.{_CATEGORY_NAMES[cat]}"
-        for cat in categories
-        if cat in _CATEGORY_NAMES
+        f"{RULE_NAME_PREFIX}.{_CATEGORY_NAMES[cat]}" for cat in categories if cat in _CATEGORY_NAMES
     )
     return LlamaGuardVerdict(
         safe=False,

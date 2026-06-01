@@ -34,7 +34,9 @@ def _resp(tool_calls: list[dict] | None = None, content: str = "") -> dict:
         msg["tool_calls"] = tool_calls
     return {
         "id": "chatcmpl-test",
-        "choices": [{"index": 0, "message": msg, "finish_reason": "tool_calls" if tool_calls else "stop"}],
+        "choices": [
+            {"index": 0, "message": msg, "finish_reason": "tool_calls" if tool_calls else "stop"}
+        ],
     }
 
 
@@ -77,10 +79,13 @@ class TestArgsEqual:
         assert args_equal({}, {"city": "Paris"}) is False
 
     def test_nested_dict_recursive(self) -> None:
-        assert args_equal(
-            {"loc": {"lat": 48.8, "lng": 2.3}},
-            {"loc": {"lng": 2.3, "lat": 48.8}},
-        ) is True
+        assert (
+            args_equal(
+                {"loc": {"lat": 48.8, "lng": 2.3}},
+                {"loc": {"lng": 2.3, "lat": 48.8}},
+            )
+            is True
+        )
 
     def test_list_value(self) -> None:
         assert args_equal({"tags": ["a", "b"]}, {"tags": ["a", "b"]}) is True
@@ -207,11 +212,7 @@ class TestScoreSimple:
 
     def test_extra_args_fail(self) -> None:
         case = _case()
-        body = _resp(
-            tool_calls=[
-                _tool_call("get_weather", {"city": "Paris", "extra": "yes"})
-            ]
-        )
+        body = _resp(tool_calls=[_tool_call("get_weather", {"city": "Paris", "extra": "yes"})])
         result = score_case(case, body)
         assert result.passed is False
         assert result.reason == "wrong_args"

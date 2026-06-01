@@ -170,9 +170,7 @@ async def test_upstream_sees_token_not_original_email(pii_tokenization_setup) ->
         headers=_auth(pii_tokenization_setup.api_key),
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "Send a note to alice@example.com please"}
-            ],
+            "messages": [{"role": "user", "content": "Send a note to alice@example.com please"}],
             "temperature": 0.0,
         },
     )
@@ -228,9 +226,7 @@ async def test_llm_echo_of_token_resolves_back_to_original(  # type: ignore[no-u
         headers=_auth(pii_tokenization_setup.api_key),
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "Email alice@example.com when ready"}
-            ],
+            "messages": [{"role": "user", "content": "Email alice@example.com when ready"}],
             "temperature": 0.0,
         },
     )
@@ -266,9 +262,7 @@ async def test_audit_row_carries_tokenized_payload(pii_tokenization_setup) -> No
         headers=_auth(pii_tokenization_setup.api_key),
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "ping bob@example.com today"}
-            ],
+            "messages": [{"role": "user", "content": "ping bob@example.com today"}],
             "temperature": 0.0,
         },
     )
@@ -285,12 +279,16 @@ async def test_audit_row_carries_tokenized_payload(pii_tokenization_setup) -> No
 
     async with pii_tokenization_setup.sm() as session:
         rows = (
-            await session.execute(
-                select(AuditRecord).where(
-                    AuditRecord.tenant_id == pii_tokenization_setup.tenant_id
+            (
+                await session.execute(
+                    select(AuditRecord).where(
+                        AuditRecord.tenant_id == pii_tokenization_setup.tenant_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(rows) >= 1
 
     # Now fire the SAME request again. The tokenized form is identical
@@ -301,9 +299,7 @@ async def test_audit_row_carries_tokenized_payload(pii_tokenization_setup) -> No
         headers=_auth(pii_tokenization_setup.api_key),
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "ping bob@example.com today"}
-            ],
+            "messages": [{"role": "user", "content": "ping bob@example.com today"}],
             "temperature": 0.0,
         },
     )
@@ -311,12 +307,16 @@ async def test_audit_row_carries_tokenized_payload(pii_tokenization_setup) -> No
 
     async with pii_tokenization_setup.sm() as session:
         all_rows = (
-            await session.execute(
-                select(AuditRecord)
-                .where(AuditRecord.tenant_id == pii_tokenization_setup.tenant_id)
-                .order_by(AuditRecord.ts)
+            (
+                await session.execute(
+                    select(AuditRecord)
+                    .where(AuditRecord.tenant_id == pii_tokenization_setup.tenant_id)
+                    .order_by(AuditRecord.ts)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         # First and most recent rows have identical request hashes —
         # proves the audited body is the tokenized form (deterministic).
         hashes = [r.request_hash for r in all_rows]
@@ -356,9 +356,7 @@ async def test_disabled_team_falls_back_to_redact(pii_tokenization_setup) -> Non
         headers=_auth(pii_tokenization_setup.api_key),
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "Email alice@example.com please"}
-            ],
+            "messages": [{"role": "user", "content": "Email alice@example.com please"}],
             "temperature": 0.0,
         },
     )

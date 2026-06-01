@@ -228,9 +228,7 @@ async def test_oversized_image_rejected_pre_flight(auth_setup) -> None:  # type:
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": fat_url}}
-                    ],
+                    "content": [{"type": "image_url", "image_url": {"url": fat_url}}],
                 }
             ],
             "temperature": 0.0,
@@ -251,14 +249,10 @@ async def test_under_cap_image_passes_through(auth_setup) -> None:  # type: igno
     again for completeness."""
     async with auth_setup.sm() as session:
         await session.execute(
-            update(Team)
-            .where(Team.id == auth_setup.team_id)
-            .values(max_image_bytes=100_000)
+            update(Team).where(Team.id == auth_setup.team_id).values(max_image_bytes=100_000)
         )
         await session.commit()
-    respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(200, json=_groq_text_response("ok"))
-    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_text_response("ok")))
     r = await auth_setup.client.post(
         "/v1/chat/completions",
         headers=_auth(auth_setup.api_key),
@@ -267,9 +261,7 @@ async def test_under_cap_image_passes_through(auth_setup) -> None:  # type: igno
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": _synth_png(64, 64)}}
-                    ],
+                    "content": [{"type": "image_url", "image_url": {"url": _synth_png(64, 64)}}],
                 }
             ],
             "temperature": 0.0,
@@ -290,9 +282,7 @@ async def test_no_cap_team_unaffected(auth_setup) -> None:  # type: ignore[no-un
     through — operators must opt in to the cap to get protection."""
     # Default team has NULL cap.
     fat_url = f"data:image/png;base64,{'A' * 100000}"
-    respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(200, json=_groq_text_response("ok"))
-    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_text_response("ok")))
     r = await auth_setup.client.post(
         "/v1/chat/completions",
         headers=_auth(auth_setup.api_key),
@@ -301,9 +291,7 @@ async def test_no_cap_team_unaffected(auth_setup) -> None:  # type: ignore[no-un
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": fat_url}}
-                    ],
+                    "content": [{"type": "image_url", "image_url": {"url": fat_url}}],
                 }
             ],
             "temperature": 0.0,

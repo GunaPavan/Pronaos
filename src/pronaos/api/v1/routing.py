@@ -88,9 +88,7 @@ def _validate_strategy(value: str | None) -> str | None:
         return RoutingStrategy(value.strip().lower()).value
     except ValueError as e:
         valid = ", ".join(s.value for s in RoutingStrategy)
-        raise ValueError(
-            f"invalid routing_strategy {value!r}; must be one of: {valid}"
-        ) from e
+        raise ValueError(f"invalid routing_strategy {value!r}; must be one of: {valid}") from e
 
 
 def _validate_scores_dict(value: dict[str, Any] | None) -> dict[str, Any] | None:

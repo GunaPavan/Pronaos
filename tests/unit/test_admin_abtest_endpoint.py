@@ -5,6 +5,7 @@ Covers:
 - Returns 403 on a chat:write-only key.
 - Returns 404 when the team_id is not found.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator

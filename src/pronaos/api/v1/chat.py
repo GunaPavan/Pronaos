@@ -811,9 +811,7 @@ async def chat_completions(
                 # (``llama_guard.violent_crimes``) so dashboards can
                 # break out hits by category.
                 for rule_name in lg_verdict.rule_names:
-                    record_guardrail_hit(
-                        rule=rule_name, action=str(lg_action), direction="ingress"
-                    )
+                    record_guardrail_hit(rule=rule_name, action=str(lg_action), direction="ingress")
                 if lg_action == GuardrailAction.BLOCK:
                     # 422 mirrors a regex/Presidio BLOCK exactly.
                     first_rule = (
@@ -838,9 +836,7 @@ async def chat_completions(
     # reverse later -> safer to redact one-way). The engine respects
     # the flag and silently degrades TOKENIZE → REDACT when off.
     pii_token_store: TokenStore | None = getattr(request.app.state, "pii_token_store", None)
-    tokenization_active = bool(
-        principal.pii_tokenization_enabled and pii_token_store is not None
-    )
+    tokenization_active = bool(principal.pii_tokenization_enabled and pii_token_store is not None)
     pii_token_ttl = principal.pii_token_ttl_seconds or PII_TOKEN_DEFAULT_TTL
     guardrail_summary: list[str] = []
     redacted_any = False
@@ -979,9 +975,7 @@ async def chat_completions(
         # redactions from reversible tokenizations.
         existing = response.headers.get("X-Pronaos-Guardrails", "")
         marker = "tokenized:" + ",".join(sorted(set(pending_token_rules)))
-        response.headers["X-Pronaos-Guardrails"] = (
-            f"{existing};{marker}" if existing else marker
-        )
+        response.headers["X-Pronaos-Guardrails"] = f"{existing};{marker}" if existing else marker
 
     # ---- Tool-result cache (Phase 49) -----------------------------------
     # When the team has opted in, the gateway memoizes
@@ -1114,9 +1108,7 @@ async def chat_completions(
                     # follow-ups. We don't remove any existing
                     # messages; injection is additive.
                     body.messages.extend(injected)
-                    response.headers["X-Pronaos-Tool-Cache-Hits"] = str(
-                        tool_cache_hits
-                    )
+                    response.headers["X-Pronaos-Tool-Cache-Hits"] = str(tool_cache_hits)
                     response.headers["X-Pronaos-Tool-Cache-Tools"] = ",".join(
                         sorted(set(injected_tool_names))
                     )
@@ -1319,12 +1311,8 @@ async def chat_completions(
         ab_arm=ab_arm,
         max_tokens=body.max_tokens,
         temperature=body.temperature,
-        prompt_cache_observer=getattr(
-            request.app.state, "prompt_cache_observer", None
-        ),
-        reasoning_observer=getattr(
-            request.app.state, "reasoning_observer", None
-        ),
+        prompt_cache_observer=getattr(request.app.state, "prompt_cache_observer", None),
+        reasoning_observer=getattr(request.app.state, "reasoning_observer", None),
     )
 
     # ---- Phase 39: structured-output validation + auto-retry ------------
@@ -1357,9 +1345,7 @@ async def chat_completions(
                 # Convert the dict messages to ChatMessage so the
                 # downstream serializer treats them like first-class
                 # turns.
-                retry_messages = retry_messages + [
-                    ChatMessage(**m) for m in correction
-                ]
+                retry_messages = retry_messages + [ChatMessage(**m) for m in correction]
                 retry_req = ProviderRequest(
                     model=body.model,
                     messages=[_dump_message(m) for m in retry_messages],
@@ -1394,12 +1380,8 @@ async def chat_completions(
                     ab_arm=ab_arm,
                     max_tokens=body.max_tokens,
                     temperature=body.temperature,
-                    prompt_cache_observer=getattr(
-                        request.app.state, "prompt_cache_observer", None
-                    ),
-                    reasoning_observer=getattr(
-                        request.app.state, "reasoning_observer", None
-                    ),
+                    prompt_cache_observer=getattr(request.app.state, "prompt_cache_observer", None),
+                    reasoning_observer=getattr(request.app.state, "reasoning_observer", None),
                 )
                 continue
             # Out of retries — return the last response with the
@@ -1695,9 +1677,7 @@ async def _handle_non_streaming(
     # async generator across yields gets fiddly and the metrics already
     # cover the streaming latency story.
     tracer = get_tracer("pronaos.provider")
-    with tracer.start_as_current_span(
-        span_name_for(GEN_AI_OPERATION_CHAT, model)
-    ) as span:
+    with tracer.start_as_current_span(span_name_for(GEN_AI_OPERATION_CHAT, model)) as span:
         # Spec-compliant request attributes (Phase 43).
         apply_gen_ai_request_attrs(
             span,
@@ -2683,14 +2663,10 @@ async def _run_quality_sample(
                 judge_model=judge_model,
                 request_id=request_id,
             )
-            check = await check_degradation(
-                session, team_id=team_id, model=model
-            )
+            check = await check_degradation(session, team_id=team_id, model=model)
             await session.commit()
         if check is not None and check.transition.value != "no_change":
-            record_quality_degradation(
-                model=model, action=check.transition.value
-            )
+            record_quality_degradation(model=model, action=check.transition.value)
             log.info(
                 "quality_monitor.transition",
                 team=team_id,
@@ -3112,9 +3088,7 @@ async def _run_mcp_federation_loop(
     max_iters_header = request.headers.get("x-pronaos-mcp-max-iterations")
     try:
         max_iterations = (
-            int(max_iters_header)
-            if max_iters_header
-            else _MCP_FEDERATION_MAX_ITERATIONS_DEFAULT
+            int(max_iters_header) if max_iters_header else _MCP_FEDERATION_MAX_ITERATIONS_DEFAULT
         )
     except ValueError:
         max_iterations = _MCP_FEDERATION_MAX_ITERATIONS_DEFAULT
@@ -3221,24 +3195,16 @@ async def _run_mcp_federation_loop(
                         arg_str = (tc.get("function") or {}).get("arguments") or "{}"
                         try:
                             args = (
-                                json.loads(arg_str)
-                                if isinstance(arg_str, str)
-                                else dict(arg_str)
+                                json.loads(arg_str) if isinstance(arg_str, str) else dict(arg_str)
                             )
                         except json.JSONDecodeError:
                             args = {}
                         server, _, original = prefixed.partition(".")
                         result = await federation.call_tool(prefixed, args)
-                        label = (
-                            "upstream_error"
-                            if result["is_error"]
-                            else "ok"
-                        )
+                        label = "upstream_error" if result["is_error"] else "ok"
                         if server not in federation.opened_server_names:
                             label = "federation_error"
-                        record_mcp_federated_tool_call(
-                            server=server, tool=original, result=label
-                        )
+                        record_mcp_federated_tool_call(server=server, tool=original, result=label)
                         messages.append(
                             {
                                 "role": "tool",
@@ -3342,11 +3308,7 @@ async def _run_mcp_streaming_federation(
         # then re-raise so the outer error handling sees an HTTPException
         # (FastAPI renders it correctly for the client).
         detail: dict[str, Any] = e.detail if isinstance(e.detail, dict) else {}
-        result = (
-            "invalid_spec"
-            if detail.get("type") == "mcp_invalid_spec"
-            else "error"
-        )
+        result = "invalid_spec" if detail.get("type") == "mcp_invalid_spec" else "error"
         record_mcp_streaming_federation_session(result=result)
         raise
     # Mirror the inner non-streaming counter's terminal result on the
@@ -3357,9 +3319,7 @@ async def _run_mcp_streaming_federation(
     # isolation. Sum of both = (non-streaming + 2*streaming), which
     # the metric docstring spells out.
     streaming_result = (
-        "max_iterations"
-        if captured.headers.get("X-Pronaos-MCP-Max-Iterations-Reached")
-        else "ok"
+        "max_iterations" if captured.headers.get("X-Pronaos-MCP-Max-Iterations-Reached") else "ok"
     )
     record_mcp_streaming_federation_session(result=streaming_result)
 

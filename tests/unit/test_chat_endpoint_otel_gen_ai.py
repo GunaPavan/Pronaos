@@ -123,9 +123,7 @@ async def test_chat_emits_spec_compliant_gen_ai_span(
     # Pull the provider-call span out of the in-memory exporter.
     spans = gen_ai_spans.get_finished_spans()
     provider_spans = [
-        s
-        for s in spans
-        if s.attributes and "gen_ai.operation.name" in dict(s.attributes)
+        s for s in spans if s.attributes and "gen_ai.operation.name" in dict(s.attributes)
     ]
     assert provider_spans, f"no gen_ai span captured; got {[s.name for s in spans]}"
     span = provider_spans[0]
@@ -191,9 +189,7 @@ async def test_no_temperature_attr_when_request_omits_it(
 
     spans = gen_ai_spans.get_finished_spans()
     provider_spans = [
-        s
-        for s in spans
-        if s.attributes and "gen_ai.operation.name" in dict(s.attributes)
+        s for s in spans if s.attributes and "gen_ai.operation.name" in dict(s.attributes)
     ]
     attrs = dict(provider_spans[0].attributes or {})
     assert "gen_ai.request.temperature" not in attrs

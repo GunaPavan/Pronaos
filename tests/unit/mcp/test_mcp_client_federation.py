@@ -64,15 +64,11 @@ class TestMcpServerSpecValidation:
 
     def test_rejects_non_string_args(self) -> None:
         with pytest.raises(ValueError, match="args"):
-            McpServerSpec.from_dict(
-                {"name": "x", "command": "y", "args": ["ok", 7]}
-            )
+            McpServerSpec.from_dict({"name": "x", "command": "y", "args": ["ok", 7]})
 
     def test_rejects_non_string_env_values(self) -> None:
         with pytest.raises(ValueError, match="env"):
-            McpServerSpec.from_dict(
-                {"name": "x", "command": "y", "env": {"K": 1}}
-            )
+            McpServerSpec.from_dict({"name": "x", "command": "y", "env": {"K": 1}})
 
     def test_args_defaults_to_empty_list(self) -> None:
         spec = McpServerSpec.from_dict({"name": "x", "command": "y"})
@@ -125,9 +121,7 @@ class TestDuplicateNames:
 
 class TestFailedOpenIsolation:
     @pytest.mark.asyncio
-    async def test_unreachable_server_recorded_in_failed(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_unreachable_server_recorded_in_failed(self, tmp_path: Path) -> None:
         """When a spec's command can't be spawned (binary doesn't
         exist), the federation should record it in ``failed_server_names``
         but the federation itself opens cleanly with zero working

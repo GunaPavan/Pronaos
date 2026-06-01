@@ -534,9 +534,7 @@ class AnthropicProvider(Provider):
         # Phase 56: extract extended-thinking content. Anthropic's
         # thinking tokens are already counted in output_tokens, so the
         # estimate is purely for visibility — no double-counting.
-        reasoning_content, reasoning_tokens = _extract_thinking_from_content_blocks(
-            content_blocks
-        )
+        reasoning_content, reasoning_tokens = _extract_thinking_from_content_blocks(content_blocks)
         usage = data.get("usage", {}) or {}
         return ChatCompletionChunk(
             content_delta="".join(text_blocks),

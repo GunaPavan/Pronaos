@@ -85,9 +85,7 @@ class TestRecordAndLookup:
         assert got == "sunny 22C"
 
     @pytest.mark.asyncio
-    async def test_lookup_miss_returns_none(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_lookup_miss_returns_none(self, cache: ToolResultCache) -> None:
         got = await cache.lookup(
             team_id="t1",
             tool_name="get_weather",
@@ -96,9 +94,7 @@ class TestRecordAndLookup:
         assert got is None
 
     @pytest.mark.asyncio
-    async def test_string_args_match_dict_args(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_string_args_match_dict_args(self, cache: ToolResultCache) -> None:
         # Record with parsed dict; look up with the JSON string the
         # wire-shape brings — same cache key.
         await cache.record(
@@ -115,9 +111,7 @@ class TestRecordAndLookup:
         assert got == "sunny 22C"
 
     @pytest.mark.asyncio
-    async def test_per_team_namespacing(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_per_team_namespacing(self, cache: ToolResultCache) -> None:
         await cache.record(
             team_id="t1",
             tool_name="get_weather",
@@ -130,19 +124,13 @@ class TestRecordAndLookup:
             args={"city": "Tokyo"},
             result="t2-result",
         )
-        t1 = await cache.lookup(
-            team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-        )
-        t2 = await cache.lookup(
-            team_id="t2", tool_name="get_weather", args={"city": "Tokyo"}
-        )
+        t1 = await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
+        t2 = await cache.lookup(team_id="t2", tool_name="get_weather", args={"city": "Tokyo"})
         assert t1 == "t1-result"
         assert t2 == "t2-result"
 
     @pytest.mark.asyncio
-    async def test_different_args_separate_entries(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_different_args_separate_entries(self, cache: ToolResultCache) -> None:
         await cache.record(
             team_id="t1",
             tool_name="get_weather",
@@ -156,15 +144,11 @@ class TestRecordAndLookup:
             result="Paris: rainy",
         )
         assert (
-            await cache.lookup(
-                team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-            )
+            await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
             == "Tokyo: sunny"
         )
         assert (
-            await cache.lookup(
-                team_id="t1", tool_name="get_weather", args={"city": "Paris"}
-            )
+            await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Paris"})
             == "Paris: rainy"
         )
 
@@ -185,9 +169,7 @@ class TestRecordAndLookup:
             result="new",
         )
         assert (
-            await cache.lookup(
-                team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-            )
+            await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
             == "new"
         )
 
@@ -207,69 +189,43 @@ class TestFailOpenSemantics:
     @pytest.mark.asyncio
     async def test_lookup_with_no_redis_returns_none(self) -> None:
         c = ToolResultCache(None)
-        got = await c.lookup(
-            team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-        )
+        got = await c.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
         assert got is None
 
     @pytest.mark.asyncio
-    async def test_empty_tool_name_skipped(
-        self, cache: ToolResultCache
-    ) -> None:
-        await cache.record(
-            team_id="t1", tool_name="", args={"city": "Tokyo"}, result="x"
-        )
-        got = await cache.lookup(
-            team_id="t1", tool_name="", args={"city": "Tokyo"}
-        )
+    async def test_empty_tool_name_skipped(self, cache: ToolResultCache) -> None:
+        await cache.record(team_id="t1", tool_name="", args={"city": "Tokyo"}, result="x")
+        got = await cache.lookup(team_id="t1", tool_name="", args={"city": "Tokyo"})
         assert got is None
 
     @pytest.mark.asyncio
-    async def test_empty_result_skipped(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_empty_result_skipped(self, cache: ToolResultCache) -> None:
         await cache.record(
             team_id="t1",
             tool_name="get_weather",
             args={"city": "Tokyo"},
             result="",
         )
-        got = await cache.lookup(
-            team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-        )
+        got = await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
         assert got is None
 
 
 class TestSnapshot:
     @pytest.mark.asyncio
-    async def test_snapshot_returns_all_entries(
-        self, cache: ToolResultCache
-    ) -> None:
-        await cache.record(
-            team_id="t1", tool_name="a", args={"k": 1}, result="r1"
-        )
-        await cache.record(
-            team_id="t1", tool_name="b", args={"k": 2}, result="r2"
-        )
+    async def test_snapshot_returns_all_entries(self, cache: ToolResultCache) -> None:
+        await cache.record(team_id="t1", tool_name="a", args={"k": 1}, result="r1")
+        await cache.record(team_id="t1", tool_name="b", args={"k": 2}, result="r2")
         snap = await cache.snapshot("t1")
         names = {e.tool_name for e in snap}
         assert names == {"a", "b"}
 
     @pytest.mark.asyncio
-    async def test_snapshot_orders_by_hit_count_desc(
-        self, cache: ToolResultCache
-    ) -> None:
-        await cache.record(
-            team_id="t1", tool_name="hot", args={"k": 1}, result="r1"
-        )
-        await cache.record(
-            team_id="t1", tool_name="cold", args={"k": 2}, result="r2"
-        )
+    async def test_snapshot_orders_by_hit_count_desc(self, cache: ToolResultCache) -> None:
+        await cache.record(team_id="t1", tool_name="hot", args={"k": 1}, result="r1")
+        await cache.record(team_id="t1", tool_name="cold", args={"k": 2}, result="r2")
         # Hit "hot" 3 times.
         for _ in range(3):
-            await cache.lookup(
-                team_id="t1", tool_name="hot", args={"k": 1}
-            )
+            await cache.lookup(team_id="t1", tool_name="hot", args={"k": 1})
         snap = await cache.snapshot("t1")
         assert snap[0].tool_name == "hot"
         assert snap[0].n_hits == 3
@@ -277,9 +233,7 @@ class TestSnapshot:
         assert snap[1].n_hits == 0
 
     @pytest.mark.asyncio
-    async def test_snapshot_empty_when_no_records(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_snapshot_empty_when_no_records(self, cache: ToolResultCache) -> None:
         snap = await cache.snapshot("nonexistent_team")
         assert snap == []
 
@@ -294,15 +248,11 @@ class TestReset:
             result="sunny",
         )
         await cache.reset("t1")
-        got = await cache.lookup(
-            team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-        )
+        got = await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
         assert got is None
 
     @pytest.mark.asyncio
-    async def test_reset_does_not_affect_other_teams(
-        self, cache: ToolResultCache
-    ) -> None:
+    async def test_reset_does_not_affect_other_teams(self, cache: ToolResultCache) -> None:
         await cache.record(
             team_id="t1",
             tool_name="get_weather",
@@ -316,12 +266,8 @@ class TestReset:
             result="rainy",
         )
         await cache.reset("t1")
-        t1 = await cache.lookup(
-            team_id="t1", tool_name="get_weather", args={"city": "Tokyo"}
-        )
-        t2 = await cache.lookup(
-            team_id="t2", tool_name="get_weather", args={"city": "Tokyo"}
-        )
+        t1 = await cache.lookup(team_id="t1", tool_name="get_weather", args={"city": "Tokyo"})
+        t2 = await cache.lookup(team_id="t2", tool_name="get_weather", args={"city": "Tokyo"})
         assert t1 is None
         assert t2 == "rainy"
 

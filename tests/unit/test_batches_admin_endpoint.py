@@ -27,9 +27,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -84,9 +82,7 @@ async def test_admin_batch_list_returns_seeded_batches(auth_setup) -> None:  # t
         status="in_progress",
     )
 
-    r = await auth_setup.client.get(
-        "/v1/admin/batches", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/batches", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] == 1
@@ -164,9 +160,7 @@ async def test_admin_get_batch_returns_any_team_batch(auth_setup) -> None:  # ty
         team_id=auth_setup.team_id,
     )
 
-    r = await auth_setup.client.get(
-        "/v1/admin/batches/b100", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/batches/b100", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     assert r.json()["id"] == "b100"
 
@@ -247,15 +241,11 @@ async def test_admin_cancel_requires_admin_identity(auth_setup) -> None:  # type
 @pytest.mark.asyncio
 async def test_admin_batch_list_requires_admin_usage(auth_setup) -> None:  # type: ignore[no-untyped-def]
     # Default key only has chat:write.
-    r = await auth_setup.client.get(
-        "/v1/admin/batches", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/batches", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_admin_get_batch_requires_admin_usage(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    r = await auth_setup.client.get(
-        "/v1/admin/batches/any", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/batches/any", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403

@@ -333,9 +333,7 @@ class TestLlamaGuardClassifier:
 
 class TestLlamaGuardVerdict:
     def test_safe_verdict_no_categories(self) -> None:
-        v = LlamaGuardVerdict(
-            safe=True, categories=(), rule_names=(), raw_response="safe"
-        )
+        v = LlamaGuardVerdict(safe=True, categories=(), rule_names=(), raw_response="safe")
         assert v.safe is True
         assert v.categories == ()
 

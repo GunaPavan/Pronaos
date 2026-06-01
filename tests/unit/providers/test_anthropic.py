@@ -292,9 +292,7 @@ class TestExtendedThinking:
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 12, "output_tokens": 50},
         }
-        respx.post(ANTHROPIC_API_URL).mock(
-            return_value=httpx.Response(200, json=body)
-        )
+        respx.post(ANTHROPIC_API_URL).mock(return_value=httpx.Response(200, json=body))
         req = ChatCompletionRequest(
             model="anthropic/claude-opus-4-7",
             messages=[{"role": "user", "content": "what's 2+2?"}],

@@ -39,21 +39,27 @@ from pronaos.core.batches import (
 
 class TestBatchCostHcents:
     def test_unknown_provider_returns_zero(self) -> None:
-        assert batch_cost_hcents(
-            provider_key="unknown",
-            model="unknown-model",
-            prompt_tokens=100,
-            completion_tokens=100,
-        ) == 0
+        assert (
+            batch_cost_hcents(
+                provider_key="unknown",
+                model="unknown-model",
+                prompt_tokens=100,
+                completion_tokens=100,
+            )
+            == 0
+        )
 
     def test_unknown_model_returns_zero(self) -> None:
         # The 'openai' catalog entry exists but 'unknown-model' isn't in it.
-        assert batch_cost_hcents(
-            provider_key="openai",
-            model="unknown-model-xyz",
-            prompt_tokens=100,
-            completion_tokens=100,
-        ) == 0
+        assert (
+            batch_cost_hcents(
+                provider_key="openai",
+                model="unknown-model-xyz",
+                prompt_tokens=100,
+                completion_tokens=100,
+            )
+            == 0
+        )
 
     def test_known_openai_model_halves_sync_rate(self) -> None:
         """gpt-4o-mini priced at 15 hcents/Mtok input + 60/Mtok output.
@@ -79,12 +85,15 @@ class TestBatchCostHcents:
         assert doubled == result * 2
 
     def test_zero_tokens_returns_zero(self) -> None:
-        assert batch_cost_hcents(
-            provider_key="openai",
-            model="gpt-4o-mini",
-            prompt_tokens=0,
-            completion_tokens=0,
-        ) == 0
+        assert (
+            batch_cost_hcents(
+                provider_key="openai",
+                model="gpt-4o-mini",
+                prompt_tokens=0,
+                completion_tokens=0,
+            )
+            == 0
+        )
 
     def test_prefix_stripped_for_bare_lookup(self) -> None:
         """Anthropic-direct provider keys model by bare name. The
@@ -256,9 +265,7 @@ async def test_openai_poll_surfaces_first_error_message() -> None:
                 "id": "batch_123",
                 "status": "failed",
                 "request_counts": {"total": 5, "completed": 0, "failed": 5},
-                "errors": {
-                    "data": [{"code": "bad_request", "message": "schema invalid"}]
-                },
+                "errors": {"data": [{"code": "bad_request", "message": "schema invalid"}]},
             },
         )
     )
@@ -374,9 +381,7 @@ async def test_anthropic_poll_normalizes_ended() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_anthropic_cancel_calls_provider() -> None:
-    route = respx.post(
-        "https://api.anthropic.com/v1/messages/batches/msgbatch_001/cancel"
-    ).mock(
+    route = respx.post("https://api.anthropic.com/v1/messages/batches/msgbatch_001/cancel").mock(
         return_value=httpx.Response(
             200, json={"id": "msgbatch_001", "processing_status": "canceling"}
         )
@@ -396,19 +401,22 @@ async def test_anthropic_cancel_calls_provider() -> None:
 
 class TestOpenAIResultParser:
     def test_success_row(self) -> None:
-        jsonl = json.dumps(
-            {
-                "id": "out_1",
-                "custom_id": "req-a",
-                "response": {
-                    "body": {
-                        "model": "gpt-4o-mini",
-                        "usage": {"prompt_tokens": 7, "completion_tokens": 3},
-                    }
-                },
-                "error": None,
-            }
-        ) + "\n"
+        jsonl = (
+            json.dumps(
+                {
+                    "id": "out_1",
+                    "custom_id": "req-a",
+                    "response": {
+                        "body": {
+                            "model": "gpt-4o-mini",
+                            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+                        }
+                    },
+                    "error": None,
+                }
+            )
+            + "\n"
+        )
         rows = parse_openai_result_jsonl(jsonl)
         assert len(rows) == 1
         assert rows[0].custom_id == "req-a"
@@ -418,13 +426,16 @@ class TestOpenAIResultParser:
         assert rows[0].model == "gpt-4o-mini"
 
     def test_error_row(self) -> None:
-        jsonl = json.dumps(
-            {
-                "custom_id": "req-bad",
-                "response": None,
-                "error": {"code": "schema_invalid", "message": "bad input"},
-            }
-        ) + "\n"
+        jsonl = (
+            json.dumps(
+                {
+                    "custom_id": "req-bad",
+                    "response": None,
+                    "error": {"code": "schema_invalid", "message": "bad input"},
+                }
+            )
+            + "\n"
+        )
         rows = parse_openai_result_jsonl(jsonl)
         assert len(rows) == 1
         assert rows[0].is_error is True
@@ -438,18 +449,21 @@ class TestOpenAIResultParser:
 
 class TestAnthropicResultParser:
     def test_success_row(self) -> None:
-        jsonl = json.dumps(
-            {
-                "custom_id": "req-a",
-                "result": {
-                    "type": "succeeded",
-                    "message": {
-                        "model": "claude-opus-4-7",
-                        "usage": {"input_tokens": 5, "output_tokens": 2},
+        jsonl = (
+            json.dumps(
+                {
+                    "custom_id": "req-a",
+                    "result": {
+                        "type": "succeeded",
+                        "message": {
+                            "model": "claude-opus-4-7",
+                            "usage": {"input_tokens": 5, "output_tokens": 2},
+                        },
                     },
-                },
-            }
-        ) + "\n"
+                }
+            )
+            + "\n"
+        )
         rows = parse_anthropic_result_jsonl(jsonl)
         assert len(rows) == 1
         assert rows[0].is_error is False
@@ -457,15 +471,18 @@ class TestAnthropicResultParser:
         assert rows[0].completion_tokens == 2
 
     def test_errored_row(self) -> None:
-        jsonl = json.dumps(
-            {
-                "custom_id": "req-bad",
-                "result": {
-                    "type": "errored",
-                    "error": {"message": "invalid_request"},
-                },
-            }
-        ) + "\n"
+        jsonl = (
+            json.dumps(
+                {
+                    "custom_id": "req-bad",
+                    "result": {
+                        "type": "errored",
+                        "error": {"message": "invalid_request"},
+                    },
+                }
+            )
+            + "\n"
+        )
         rows = parse_anthropic_result_jsonl(jsonl)
         assert len(rows) == 1
         assert rows[0].is_error is True

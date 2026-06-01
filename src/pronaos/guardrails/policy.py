@@ -125,8 +125,7 @@ def validate_policy(raw: Mapping[str, Any] | None) -> list[str]:
             unknown_lg = set(lg.keys()) - allowed_lg
             if unknown_lg:
                 errors.append(
-                    f"unknown llama_guard keys: {sorted(unknown_lg)}; "
-                    f"allowed: {sorted(allowed_lg)}"
+                    f"unknown llama_guard keys: {sorted(unknown_lg)}; allowed: {sorted(allowed_lg)}"
                 )
             enabled = lg.get("enabled")
             if enabled is not None and not isinstance(enabled, bool):

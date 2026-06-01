@@ -41,9 +41,7 @@ class _MockClient:
         self.closed: bool = False
 
     async def submit(self, *, requests_jsonl: str) -> BatchSubmission:
-        return BatchSubmission(
-            provider_batch_id="prov_001", initial_status="validating"
-        )
+        return BatchSubmission(provider_batch_id="prov_001", initial_status="validating")
 
     async def poll(self, *, provider_batch_id: str) -> BatchStatus:
         if not self.poll_responses:
@@ -166,9 +164,7 @@ class TestTickStatusSync:
         assert n == 0
 
     @pytest.mark.asyncio
-    async def test_tick_marks_failed_on_missing_provider_id(
-        self, sm: Any
-    ) -> None:
+    async def test_tick_marks_failed_on_missing_provider_id(self, sm: Any) -> None:
         """A row with provider_batch_id=None is pathological — we
         fail it rather than crash."""
         async with sm() as session:
@@ -208,9 +204,7 @@ class TestTickStatusSync:
 
 class TestTickFinalize:
     @pytest.mark.asyncio
-    async def test_completed_writes_usage_rows_at_half_price(
-        self, sm: Any
-    ) -> None:
+    async def test_completed_writes_usage_rows_at_half_price(self, sm: Any) -> None:
         """When a batch transitions to ``completed``, the worker
         fetches result JSONL, parses it, and writes one
         UsageRecord per successful sub-request at the batch rate."""
@@ -285,11 +279,7 @@ class TestTickFinalize:
             from sqlalchemy import select
 
             usage = (
-                (
-                    await session.execute(
-                        select(UsageRecord).where(UsageRecord.team_id == "team1")
-                    )
-                )
+                (await session.execute(select(UsageRecord).where(UsageRecord.team_id == "team1")))
                 .scalars()
                 .all()
             )
@@ -300,9 +290,7 @@ class TestTickFinalize:
                 assert u.request_id.startswith("pron_batch_test_001#")
 
     @pytest.mark.asyncio
-    async def test_failed_terminal_does_not_write_usage(
-        self, sm: Any
-    ) -> None:
+    async def test_failed_terminal_does_not_write_usage(self, sm: Any) -> None:
         async with sm() as session:
             session.add(_row(status="in_progress"))
             await session.commit()
@@ -332,18 +320,14 @@ class TestTickFinalize:
             # No usage rows because no sub-requests succeeded.
             from sqlalchemy import select
 
-            usage = (
-                (await session.execute(select(UsageRecord))).scalars().all()
-            )
+            usage = (await session.execute(select(UsageRecord))).scalars().all()
             assert usage == []
 
 
 class TestLifecycle:
     @pytest.mark.asyncio
     async def test_start_then_stop_is_idempotent(self, sm: Any) -> None:
-        worker = BatchWorker(
-            sessionmaker=sm, settings=_make_settings(), poll_interval_seconds=1
-        )
+        worker = BatchWorker(sessionmaker=sm, settings=_make_settings(), poll_interval_seconds=1)
         worker.start()
         worker.start()  # second start is a no-op
         await worker.stop()

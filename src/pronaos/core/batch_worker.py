@@ -118,9 +118,7 @@ class BatchWorker:
                 # Sleep with cancellation support — wait_for on the stop
                 # event lets stop() cut the wait short.
                 with suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self._stop.wait(), timeout=self._poll_interval
-                    )
+                    await asyncio.wait_for(self._stop.wait(), timeout=self._poll_interval)
         finally:
             log.info("batch_worker_stopped")
 
@@ -154,9 +152,7 @@ class BatchWorker:
     # Per-row reconciliation                                             #
     # ------------------------------------------------------------------ #
 
-    def _client_for(
-        self, provider: str, cache: dict[str, BatchClient]
-    ) -> BatchClient | None:
+    def _client_for(self, provider: str, cache: dict[str, BatchClient]) -> BatchClient | None:
         if provider in cache:
             return cache[provider]
         if provider == "openai":
@@ -167,15 +163,11 @@ class BatchWorker:
         if provider == "anthropic":
             if not self._settings.anthropic_api_key:
                 return None
-            cache[provider] = AnthropicBatchClient(
-                api_key=self._settings.anthropic_api_key
-            )
+            cache[provider] = AnthropicBatchClient(api_key=self._settings.anthropic_api_key)
             return cache[provider]
         return None
 
-    async def _reconcile_one(
-        self, session: AsyncSession, row: Batch, client: BatchClient
-    ) -> None:
+    async def _reconcile_one(self, session: AsyncSession, row: Batch, client: BatchClient) -> None:
         if row.provider_batch_id is None:
             # Submitted-but-no-id rows are pathological; mark failed.
             row.status = "failed"

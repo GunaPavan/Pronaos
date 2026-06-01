@@ -58,9 +58,7 @@ class TestMakeToken:
 
     def test_rule_suffix_drives_type_label(self) -> None:
         # Suffix mapping is in _type_label_for. Aliases first:
-        assert make_token(tenant_id="t", rule_name="pii.credit_card", value="v").startswith(
-            "[CC_"
-        )
+        assert make_token(tenant_id="t", rule_name="pii.credit_card", value="v").startswith("[CC_")
         assert make_token(tenant_id="t", rule_name="pii.ipv4", value="v").startswith("[IPV4_")
         assert make_token(tenant_id="t", rule_name="pii.email", value="v").startswith("[EMAIL_")
         # Presidio rule families:
@@ -149,9 +147,7 @@ class TestTokenStore:
     async def test_store_and_reverse_roundtrip(self, redis_client) -> None:  # type: ignore[no-untyped-def]
         store = TokenStore(redis_client)
         token = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        n = await store.store_many(
-            tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
+        n = await store.store_many(tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60)
         assert n == 1
         outcome = await store.reverse_text(
             tenant_id="t1", text=f"contact me at {token} for details"
@@ -165,12 +161,8 @@ class TestTokenStore:
         """A token minted under tenant A doesn't resolve under tenant B."""
         store = TokenStore(redis_client)
         token = make_token(tenant_id="alice", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="alice", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
-        outcome = await store.reverse_text(
-            tenant_id="bob", text=f"see {token} there"
-        )
+        await store.store_many(tenant_id="alice", mappings=[(token, "a@b.c")], ttl_seconds=60)
+        outcome = await store.reverse_text(tenant_id="bob", text=f"see {token} there")
         # Bob's store has nothing under that key. Token left as-is.
         assert token in outcome.text
         assert outcome.reversed_count == 0
@@ -209,12 +201,8 @@ class TestTokenStore:
     ) -> None:
         store = TokenStore(redis_client)
         token = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
-        outcome = await store.reverse_text(
-            tenant_id="t1", text=f"see {token} and again {token}"
-        )
+        await store.store_many(tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60)
+        outcome = await store.reverse_text(tenant_id="t1", text=f"see {token} and again {token}")
         assert outcome.text.count("a@b.c") == 2
         assert outcome.reversed_count == 2
 
@@ -227,9 +215,7 @@ class TestTokenStore:
     @pytest.mark.asyncio
     async def test_text_without_tokens_passes_through(self, redis_client) -> None:  # type: ignore[no-untyped-def]
         store = TokenStore(redis_client)
-        outcome = await store.reverse_text(
-            tenant_id="t1", text="no tokens here, just plain text"
-        )
+        outcome = await store.reverse_text(tenant_id="t1", text="no tokens here, just plain text")
         assert outcome.text == "no tokens here, just plain text"
         assert outcome.reversed_count == 0
         assert outcome.orphaned_count == 0
@@ -255,9 +241,7 @@ class TestStreamingDetokenizer:
     async def test_complete_token_in_one_chunk_reverses(self, redis_client) -> None:  # type: ignore[no-untyped-def]
         store = TokenStore(redis_client)
         token = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
+        await store.store_many(tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60)
         detok = StreamingDetokenizer(store, tenant_id="t1")
         out = await detok.feed(f"email {token} ok")
         assert "a@b.c" in out
@@ -271,9 +255,7 @@ class TestStreamingDetokenizer:
         chunk arrives, then concatenate and reverse correctly."""
         store = TokenStore(redis_client)
         token = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
+        await store.store_many(tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60)
         # Split the token roughly in half across two chunks.
         # Token shape: [EMAIL_aaaaaaaaaaaa] = 20 chars; split at index 10.
         full = f"contact {token} now"
@@ -294,9 +276,7 @@ class TestStreamingDetokenizer:
         """Token landing at the very end of the stream is reversed on flush."""
         store = TokenStore(redis_client)
         token = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60
-        )
+        await store.store_many(tenant_id="t1", mappings=[(token, "a@b.c")], ttl_seconds=60)
         detok = StreamingDetokenizer(store, tenant_id="t1")
         out = await detok.feed(f"see {token}")
         tail = await detok.flush()
@@ -308,9 +288,7 @@ class TestStreamingDetokenizer:
         """Per-type counters track reversed + orphaned across chunks."""
         store = TokenStore(redis_client)
         good = make_token(tenant_id="t1", rule_name="pii.email", value="a@b.c")
-        await store.store_many(
-            tenant_id="t1", mappings=[(good, "a@b.c")], ttl_seconds=60
-        )
+        await store.store_many(tenant_id="t1", mappings=[(good, "a@b.c")], ttl_seconds=60)
         orphan = "[EMAIL_deadbeef0000]"
         detok = StreamingDetokenizer(store, tenant_id="t1")
         await detok.feed(f"hello {good} and {orphan} end")

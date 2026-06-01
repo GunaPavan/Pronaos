@@ -158,11 +158,7 @@ def batch_cost_hcents(
     if entry is None:
         return 0
     # Choose the right pricing dict for the endpoint.
-    pricing_dict = (
-        entry.embedding_pricing
-        if endpoint == "/v1/embeddings"
-        else entry.pricing
-    )
+    pricing_dict = entry.embedding_pricing if endpoint == "/v1/embeddings" else entry.pricing
     if not pricing_dict:
         return 0
     # Some catalog entries are keyed by short name, some by prefix.
@@ -414,8 +410,7 @@ class AnthropicBatchClient:
         # this assertion catches misuse from internal code paths.
         if endpoint != "/v1/chat/completions":
             raise ValueError(
-                f"Anthropic batches API only supports /v1/chat/completions; "
-                f"got {endpoint!r}"
+                f"Anthropic batches API only supports /v1/chat/completions; got {endpoint!r}"
             )
         # Translate OpenAI-shape JSONL into Anthropic's inline shape.
         # Each input line: {"custom_id": "...", "body": {...chat body...}}
@@ -442,9 +437,7 @@ class AnthropicBatchClient:
         data = r.json()
         return BatchSubmission(
             provider_batch_id=data["id"],
-            initial_status=normalize_anthropic_status(
-                data.get("processing_status", "in_progress")
-            ),
+            initial_status=normalize_anthropic_status(data.get("processing_status", "in_progress")),
         )
 
     async def poll(self, *, provider_batch_id: str) -> BatchStatus:
@@ -459,9 +452,7 @@ class AnthropicBatchClient:
         results_handle = data.get("results_url")
         return BatchStatus(
             provider_batch_id=provider_batch_id,
-            status=normalize_anthropic_status(
-                data.get("processing_status", "in_progress")
-            ),
+            status=normalize_anthropic_status(data.get("processing_status", "in_progress")),
             request_count=int(counts.get("processing", 0) or 0)
             + int(counts.get("succeeded", 0) or 0)
             + int(counts.get("errored", 0) or 0)
@@ -509,8 +500,8 @@ class BatchResultRow:
 
 def parse_openai_result_jsonl(jsonl: str) -> list[BatchResultRow]:
     """Each OpenAI result line:
-        {"id": "...", "custom_id": "...", "response": {...completion...},
-         "error": null|{...}}
+    {"id": "...", "custom_id": "...", "response": {...completion...},
+     "error": null|{...}}
     """
     rows: list[BatchResultRow] = []
     for line in jsonl.splitlines():
@@ -549,8 +540,8 @@ def parse_openai_result_jsonl(jsonl: str) -> list[BatchResultRow]:
 
 def parse_anthropic_result_jsonl(jsonl: str) -> list[BatchResultRow]:
     """Each Anthropic result line:
-        {"custom_id": "...", "result": {"type": "succeeded"|"errored",
-         "message": {...} | "error": {...}}}
+    {"custom_id": "...", "result": {"type": "succeeded"|"errored",
+     "message": {...} | "error": {...}}}
     """
     rows: list[BatchResultRow] = []
     for line in jsonl.splitlines():

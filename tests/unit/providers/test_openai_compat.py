@@ -343,9 +343,7 @@ class TestReasoningTokens:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_non_reasoning_model_unaffected(
-        self, provider: OpenAICompatibleProvider
-    ) -> None:
+    async def test_non_reasoning_model_unaffected(self, provider: OpenAICompatibleProvider) -> None:
         """Regression: a plain Groq Llama response (no
         completion_tokens_details) must not invent reasoning_tokens."""
         respx.post("https://api.groq.com/openai/v1/chat/completions").mock(

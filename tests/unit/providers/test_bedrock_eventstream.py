@@ -98,18 +98,14 @@ class TestTruncation:
 
 class TestCrcValidation:
     def test_prelude_crc_mismatch_raises(self) -> None:
-        frame_bytes = bytearray(
-            encode_frame(headers={":message-type": "event"}, payload=b"x")
-        )
+        frame_bytes = bytearray(encode_frame(headers={":message-type": "event"}, payload=b"x"))
         # Flip a bit in the prelude CRC (bytes 8..12).
         frame_bytes[8] ^= 0x01
         with pytest.raises(EventStreamParseError, match="prelude CRC32"):
             parse_one_frame(bytes(frame_bytes))
 
     def test_message_crc_mismatch_raises(self) -> None:
-        frame_bytes = bytearray(
-            encode_frame(headers={":message-type": "event"}, payload=b"hello")
-        )
+        frame_bytes = bytearray(encode_frame(headers={":message-type": "event"}, payload=b"hello"))
         # Flip a bit in the payload — message CRC will no longer match.
         frame_bytes[20] ^= 0x01
         with pytest.raises(EventStreamParseError, match="message CRC32"):
@@ -127,9 +123,7 @@ class TestCrcValidation:
 
 class TestHeaderValueTypes:
     def test_string_header(self) -> None:
-        frame_bytes = encode_frame(
-            headers={":message-type": "event"}, payload=b""
-        )
+        frame_bytes = encode_frame(headers={":message-type": "event"}, payload=b"")
         frame, _ = parse_one_frame(frame_bytes)
         assert frame is not None
         assert frame.headers[":message-type"] == "event"
@@ -155,17 +149,11 @@ class TestHeaderValueTypes:
         # name="i64", type=5, value=1<<40
         parts.append(bytes([3]) + b"i64" + bytes([5]) + struct.pack(">q", 1 << 40))
         # name="ba", type=6, value=b"abc"
-        parts.append(
-            bytes([2]) + b"ba" + bytes([6]) + struct.pack(">H", 3) + b"abc"
-        )
+        parts.append(bytes([2]) + b"ba" + bytes([6]) + struct.pack(">H", 3) + b"abc")
         # name="str", type=7, value="hi" (also exercised elsewhere — keep for completeness)
-        parts.append(
-            bytes([3]) + b"str" + bytes([7]) + struct.pack(">H", 2) + b"hi"
-        )
+        parts.append(bytes([3]) + b"str" + bytes([7]) + struct.pack(">H", 2) + b"hi")
         # name="ts", type=8, value=1_700_000_000_000
-        parts.append(
-            bytes([2]) + b"ts" + bytes([8]) + struct.pack(">q", 1_700_000_000_000)
-        )
+        parts.append(bytes([2]) + b"ts" + bytes([8]) + struct.pack(">q", 1_700_000_000_000))
         # name="uuid", type=9, value=16 bytes of 0xAB
         parts.append(bytes([4]) + b"uuid" + bytes([9]) + bytes([0xAB] * 16))
         header_bytes = b"".join(parts)
@@ -237,9 +225,7 @@ class TestIterFrames:
         """A single frame split across two byte chunks must parse
         once the second chunk arrives — the parser holds the partial
         buffer in between."""
-        frame_bytes = encode_frame(
-            headers={":message-type": "event"}, payload=b"hello-world"
-        )
+        frame_bytes = encode_frame(headers={":message-type": "event"}, payload=b"hello-world")
         # Split the frame at an awkward offset.
         split_at = 7
         chunk_a, chunk_b = frame_bytes[:split_at], frame_bytes[split_at:]
@@ -253,9 +239,7 @@ class TestIterFrames:
 
     @pytest.mark.asyncio
     async def test_empty_byte_chunks_skipped(self) -> None:
-        frame_bytes = encode_frame(
-            headers={":message-type": "event"}, payload=b"ok"
-        )
+        frame_bytes = encode_frame(headers={":message-type": "event"}, payload=b"ok")
 
         async def _src() -> AsyncIterator[bytes]:
             yield b""
@@ -271,12 +255,8 @@ class TestIterFrames:
         delivered, the parser drops the trailing partial bytes rather
         than raising. The frame's worth of completed data is already
         on the consumer's plate."""
-        frame_one = encode_frame(
-            headers={":message-type": "event"}, payload=b"good"
-        )
-        frame_two = encode_frame(
-            headers={":message-type": "event"}, payload=b"truncated-soon"
-        )
+        frame_one = encode_frame(headers={":message-type": "event"}, payload=b"good")
+        frame_two = encode_frame(headers={":message-type": "event"}, payload=b"truncated-soon")
         # Half of the second frame
         truncated = frame_two[: len(frame_two) // 2]
 

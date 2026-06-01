@@ -25,9 +25,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -111,9 +109,7 @@ async def test_routing_put_sets_strategy(auth_setup) -> None:  # type: ignore[no
 
 @pytest.mark.asyncio
 async def test_routing_put_null_clears(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    await _set_team_routing_strategy(
-        auth_setup.sm, auth_setup.team_id, "quality-aware-cheapest"
-    )
+    await _set_team_routing_strategy(auth_setup.sm, auth_setup.team_id, "quality-aware-cheapest")
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:identity admin:usage")
     r = await auth_setup.client.put(
         f"/v1/admin/routing/{auth_setup.team_id}",

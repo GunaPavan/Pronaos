@@ -22,6 +22,7 @@ budgets.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -697,9 +698,7 @@ async def put_prompt_cache_config(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "type": "invalid_prompt_cache_min_hit_rate",
-                "error": (
-                    f"min_hit_rate must be in [0, 1], got {body.min_hit_rate!r}"
-                ),
+                "error": (f"min_hit_rate must be in [0, 1], got {body.min_hit_rate!r}"),
             },
         )
     team = await _load_team_for_caller(session, team_id, principal)
@@ -859,9 +858,7 @@ async def put_reasoning_config(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "type": "invalid_reasoning_max_ratio",
-                "error": (
-                    f"max_ratio must be >= 0, got {body.max_ratio!r}"
-                ),
+                "error": (f"max_ratio must be >= 0, got {body.max_ratio!r}"),
             },
         )
     team = await _load_team_for_caller(session, team_id, principal)
@@ -1402,9 +1399,7 @@ async def put_tool_budgets(
     team.tool_budgets = new_budgets
 
     out: dict[str, ToolBudgetEntry] = {
-        name: ToolBudgetEntry(
-            limit_calls=v["limit_calls"], current_calls=v["current_calls"]
-        )
+        name: ToolBudgetEntry(limit_calls=v["limit_calls"], current_calls=v["current_calls"])
         for name, v in new_budgets.items()
     }
     return ToolBudgetsResponse(team_id=team.id, budgets=out)
@@ -1772,20 +1767,14 @@ async def get_ab_test(
         UsageRecord.ab_arm.in_(["a", "b"]),
     )
     if started_at_raw:
-        try:
+        with contextlib.suppress(ValueError):
             stmt = stmt.where(UsageRecord.ts >= datetime.fromisoformat(started_at_raw))
-        except ValueError:
-            pass  # malformed date → don't filter
     rows = (await session.execute(stmt)).scalars().all()
 
     a_costs: list[int] = [r.cost_hcents for r in rows if r.ab_arm == "a"]
     b_costs: list[int] = [r.cost_hcents for r in rows if r.ab_arm == "b"]
-    a_tokens: list[int] = [
-        r.prompt_tokens + r.completion_tokens for r in rows if r.ab_arm == "a"
-    ]
-    b_tokens: list[int] = [
-        r.prompt_tokens + r.completion_tokens for r in rows if r.ab_arm == "b"
-    ]
+    a_tokens: list[int] = [r.prompt_tokens + r.completion_tokens for r in rows if r.ab_arm == "a"]
+    b_tokens: list[int] = [r.prompt_tokens + r.completion_tokens for r in rows if r.ab_arm == "b"]
 
     arm_a = summarise_arm("a", a_costs, a_tokens)
     arm_b = summarise_arm("b", b_costs, b_tokens)
@@ -1804,14 +1793,18 @@ async def get_ab_test(
             mean_cost_hcents=arm_a.mean_cost_hcents,
             mean_total_tokens=arm_a.mean_total_tokens,
             median_total_tokens=arm_a.median_total_tokens,
-        ) if arm_a.n > 0 else None,
+        )
+        if arm_a.n > 0
+        else None,
         arm_b_stats=ABTestArmStatsItem(
             arm="b",
             n=arm_b.n,
             mean_cost_hcents=arm_b.mean_cost_hcents,
             mean_total_tokens=arm_b.mean_total_tokens,
             median_total_tokens=arm_b.median_total_tokens,
-        ) if arm_b.n > 0 else None,
+        )
+        if arm_b.n > 0
+        else None,
         t_test=ABTestTTestResult(
             t_statistic=t_result.t_statistic,
             p_value=t_result.p_value,
@@ -1820,7 +1813,9 @@ async def get_ab_test(
             ci_low=t_result.ci_low,
             ci_high=t_result.ci_high,
             significant_at_05=t_result.significant_at_05,
-        ) if t_result else None,
+        )
+        if t_result
+        else None,
     )
 
 

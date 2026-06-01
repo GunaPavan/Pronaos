@@ -107,20 +107,15 @@ class McpServerSpec:
         if not isinstance(name, str) or not name:
             raise ValueError("mcp_servers[*].name must be a non-empty string")
         if not name.replace("-", "").replace("_", "").isalnum():
-            raise ValueError(
-                f"mcp_servers[*].name must be [A-Za-z0-9_-]+; got {name!r}"
-            )
+            raise ValueError(f"mcp_servers[*].name must be [A-Za-z0-9_-]+; got {name!r}")
         if not isinstance(command, str) or not command:
             raise ValueError("mcp_servers[*].command must be a non-empty string")
         args_raw = data.get("args") or []
-        if not isinstance(args_raw, list) or any(
-            not isinstance(a, str) for a in args_raw
-        ):
+        if not isinstance(args_raw, list) or any(not isinstance(a, str) for a in args_raw):
             raise ValueError("mcp_servers[*].args must be a list of strings")
         env_raw = data.get("env") or {}
         if not isinstance(env_raw, dict) or any(
-            not isinstance(k, str) or not isinstance(v, str)
-            for k, v in env_raw.items()
+            not isinstance(k, str) or not isinstance(v, str) for k, v in env_raw.items()
         ):
             raise ValueError("mcp_servers[*].env must be {str: str}")
         return cls(name=name, command=command, args=list(args_raw), env=dict(env_raw))
@@ -228,9 +223,7 @@ class McpFederation:
                 args=spec.args,
                 env={**os.environ, **spec.env} if spec.env else None,
             )
-            read_stream, write_stream = await self._stack.enter_async_context(
-                stdio_client(params)
-            )
+            read_stream, write_stream = await self._stack.enter_async_context(stdio_client(params))
             session = await self._stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
             )
@@ -246,9 +239,7 @@ class McpFederation:
                 )
                 for t in tools_result.tools
             ]
-            self._handles[spec.name] = _SessionHandle(
-                session=session, spec=spec, tools=tools
-            )
+            self._handles[spec.name] = _SessionHandle(session=session, spec=spec, tools=tools)
             log.info(
                 "mcp.client.federation.opened",
                 extra={
@@ -304,9 +295,7 @@ class McpFederation:
             return False
         return any(t.original_name == tool for t in handle.tools)
 
-    async def call_tool(
-        self, prefixed_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def call_tool(self, prefixed_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Dispatch a federated tool_call and return a serialisable result.
 
         Returns a dict shaped for the chat handler to inject as a
@@ -330,10 +319,7 @@ class McpFederation:
             if failed_reason:
                 return {
                     "is_error": True,
-                    "content": (
-                        f"federated server {server!r} failed to open: "
-                        f"{failed_reason}"
-                    ),
+                    "content": (f"federated server {server!r} failed to open: {failed_reason}"),
                 }
             return {
                 "is_error": True,

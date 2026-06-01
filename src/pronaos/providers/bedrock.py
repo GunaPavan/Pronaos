@@ -86,9 +86,7 @@ def _model_family(model_id: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _build_anthropic_body(
-    req: ChatCompletionRequest, model_id: str
-) -> dict[str, Any]:
+def _build_anthropic_body(req: ChatCompletionRequest, model_id: str) -> dict[str, Any]:
     """Translate an OpenAI-compat request to Anthropic-on-Bedrock body.
 
     Same shape as the direct Anthropic Messages API EXCEPT:
@@ -646,14 +644,8 @@ def _translate_anthropic_stream_event(
             # stream stays text-only; CoT lands on the terminal chunk.
             idx = event.get("index")
             frag = delta.get("thinking", "")
-            if (
-                isinstance(idx, int)
-                and isinstance(frag, str)
-                and "thinking_blocks" in state
-            ):
-                state["thinking_blocks"][idx] = (
-                    state["thinking_blocks"].get(idx, "") + frag
-                )
+            if isinstance(idx, int) and isinstance(frag, str) and "thinking_blocks" in state:
+                state["thinking_blocks"][idx] = state["thinking_blocks"].get(idx, "") + frag
         return None
 
     if etype == "content_block_stop":
@@ -743,12 +735,8 @@ def _translate_llama_stream_event(
     return ChatCompletionChunk(
         content_delta=text,
         finish_reason=finish,
-        prompt_tokens=(
-            state.get("prompt_tokens") if finish is not None else None
-        ),
-        completion_tokens=(
-            state.get("completion_tokens") if finish is not None else None
-        ),
+        prompt_tokens=(state.get("prompt_tokens") if finish is not None else None),
+        completion_tokens=(state.get("completion_tokens") if finish is not None else None),
     )
 
 
@@ -946,24 +934,12 @@ class BedrockProvider(Provider):
             # cost_cents. Integer math: multipliers scaled by 100,
             # divisor by 100_000_000 to avoid float drift on big
             # token counts.
-            input_cost = (
-                prompt_tokens * pricing.input_hcents_per_mtok // 1_000_000
-            )
+            input_cost = prompt_tokens * pricing.input_hcents_per_mtok // 1_000_000
             cache_write_cost = (
-                cache_creation_tokens
-                * pricing.input_hcents_per_mtok
-                * 125
-                // 100_000_000
+                cache_creation_tokens * pricing.input_hcents_per_mtok * 125 // 100_000_000
             )
-            cache_read_cost = (
-                cache_read_tokens
-                * pricing.input_hcents_per_mtok
-                * 10
-                // 100_000_000
-            )
-            output_cost = (
-                completion_tokens * pricing.output_hcents_per_mtok // 1_000_000
-            )
+            cache_read_cost = cache_read_tokens * pricing.input_hcents_per_mtok * 10 // 100_000_000
+            output_cost = completion_tokens * pricing.output_hcents_per_mtok // 1_000_000
             return input_cost + cache_write_cost + cache_read_cost + output_cost
         # Non-Anthropic families OR Anthropic with no cache tokens —
         # fall through to the plain math.
@@ -1025,8 +1001,7 @@ class BedrockProvider(Provider):
         translator = _STREAMING_TRANSLATORS.get(family)
         if translator is None:
             raise ProviderError(
-                f"bedrock: streaming not supported for family {family!r} "
-                f"(model_id={model_id})",
+                f"bedrock: streaming not supported for family {family!r} (model_id={model_id})",
                 status=400,
             )
 
@@ -1053,9 +1028,7 @@ class BedrockProvider(Provider):
                                 # in-band as exception frames. Translate
                                 # to ProviderError so the failover layer
                                 # can see them.
-                                detail = frame.payload[:500].decode(
-                                    "utf-8", errors="replace"
-                                )
+                                detail = frame.payload[:500].decode("utf-8", errors="replace")
                                 raise ProviderError(
                                     f"bedrock: stream exception: {detail}",
                                     status=502,
@@ -1072,17 +1045,12 @@ class BedrockProvider(Provider):
                             retryable=False,
                         ) from e
             except httpx.TimeoutException as e:
-                raise UpstreamTimeoutError(
-                    "bedrock: upstream timeout during streaming"
-                ) from e
+                raise UpstreamTimeoutError("bedrock: upstream timeout during streaming") from e
 
         return _gen()
 
     def _endpoint_url(self, model_id: str) -> str:
-        return (
-            f"https://bedrock-runtime.{self._region}.amazonaws.com/"
-            f"model/{model_id}/invoke"
-        )
+        return f"https://bedrock-runtime.{self._region}.amazonaws.com/model/{model_id}/invoke"
 
     def _streaming_endpoint_url(self, model_id: str) -> str:
         return (

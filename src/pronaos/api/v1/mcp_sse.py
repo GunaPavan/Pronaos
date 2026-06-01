@@ -126,9 +126,10 @@ async def mcp_sse(
     # forward it on the loopback HTTP calls.
     token_reset = set_bearer_token(bearer)
     try:
-        async with mcp_transport.connect_sse(
-            request.scope, request.receive, request._send
-        ) as (read_stream, write_stream):
+        async with mcp_transport.connect_sse(request.scope, request.receive, request._send) as (
+            read_stream,
+            write_stream,
+        ):
             init_options = mcp_server.mcp.create_initialization_options()
             await mcp_server.mcp.run(read_stream, write_stream, init_options)
     finally:
@@ -156,7 +157,5 @@ async def mcp_post_message(request: Request) -> Response:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"type": "mcp_disabled"},
         )
-    await mcp_transport.handle_post_message(
-        request.scope, request.receive, request._send
-    )
+    await mcp_transport.handle_post_message(request.scope, request.receive, request._send)
     return Response(status_code=202)

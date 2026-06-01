@@ -85,9 +85,7 @@ class TestReasoningStat:
 
 class TestReasoningObserverRecordAndSnapshot:
     @pytest.mark.asyncio
-    async def test_single_record_visible_in_snapshot(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_single_record_visible_in_snapshot(self, observer: ReasoningObserver) -> None:
         await observer.record(
             team_id="team-1",
             fqmn="anthropic/claude-opus-4-7",
@@ -104,9 +102,7 @@ class TestReasoningObserverRecordAndSnapshot:
         assert stat.ratio == pytest.approx(200 / 300)
 
     @pytest.mark.asyncio
-    async def test_multiple_records_accumulate(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_multiple_records_accumulate(self, observer: ReasoningObserver) -> None:
         for _ in range(5):
             await observer.record(
                 team_id="team-1",
@@ -122,9 +118,7 @@ class TestReasoningObserverRecordAndSnapshot:
         assert stat.ratio == pytest.approx(0.4)
 
     @pytest.mark.asyncio
-    async def test_zero_completion_is_not_recorded(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_zero_completion_is_not_recorded(self, observer: ReasoningObserver) -> None:
         """A call with zero billable output (auth error, content
         filtered) should NOT pollute the ratio denominator."""
         await observer.record(
@@ -137,9 +131,7 @@ class TestReasoningObserverRecordAndSnapshot:
         assert snap == {}
 
     @pytest.mark.asyncio
-    async def test_zero_reasoning_is_recorded(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_zero_reasoning_is_recorded(self, observer: ReasoningObserver) -> None:
         """A non-reasoning call with completion_tokens > 0 IS recorded
         — this is the signal that 'this team uses this model for plain
         chat,' which the rolling ratio needs to reflect accurately.
@@ -162,9 +154,7 @@ class TestReasoningObserverRecordAndSnapshot:
         assert stat.ratio == 0.0
 
     @pytest.mark.asyncio
-    async def test_multiple_fqmns_isolated(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_multiple_fqmns_isolated(self, observer: ReasoningObserver) -> None:
         await observer.record(
             team_id="team-1",
             fqmn="anthropic/claude-opus-4-7",
@@ -183,9 +173,7 @@ class TestReasoningObserverRecordAndSnapshot:
         assert snap["groq/llama-3.3-70b"].ratio == 0.0
 
     @pytest.mark.asyncio
-    async def test_multiple_teams_namespaced(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_multiple_teams_namespaced(self, observer: ReasoningObserver) -> None:
         await observer.record(
             team_id="team-A",
             fqmn="anthropic/claude-opus-4-7",
@@ -222,18 +210,14 @@ class TestReasoningObserverFailOpen:
         assert snap == {}
 
     @pytest.mark.asyncio
-    async def test_empty_snapshot_for_unknown_team(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_empty_snapshot_for_unknown_team(self, observer: ReasoningObserver) -> None:
         snap = await observer.snapshot("team-never-observed")
         assert snap == {}
 
 
 class TestReasoningObserverReset:
     @pytest.mark.asyncio
-    async def test_reset_drops_team_state(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_reset_drops_team_state(self, observer: ReasoningObserver) -> None:
         await observer.record(
             team_id="team-1",
             fqmn="anthropic/claude-opus-4-7",
@@ -245,9 +229,7 @@ class TestReasoningObserverReset:
         assert (await observer.snapshot("team-1")) == {}
 
     @pytest.mark.asyncio
-    async def test_reset_does_not_affect_other_teams(
-        self, observer: ReasoningObserver
-    ) -> None:
+    async def test_reset_does_not_affect_other_teams(self, observer: ReasoningObserver) -> None:
         await observer.record(
             team_id="team-A",
             fqmn="anthropic/claude-opus-4-7",

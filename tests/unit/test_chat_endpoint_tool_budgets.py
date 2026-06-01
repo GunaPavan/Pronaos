@@ -234,9 +234,7 @@ async def test_emitted_tool_increments_budget_and_persists_names(auth_setup) -> 
     )
 
     respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(
-            200, json=_groq_tool_call_response("web_search")
-        )
+        return_value=httpx.Response(200, json=_groq_tool_call_response("web_search"))
     )
 
     resp = await auth_setup.client.post(
@@ -251,9 +249,7 @@ async def test_emitted_tool_increments_budget_and_persists_names(auth_setup) -> 
     assert resp.status_code == 200
     # Sanity: the response carries the tool_call as the client expects.
     body = resp.json()
-    assert body["choices"][0]["message"]["tool_calls"][0]["function"][
-        "name"
-    ] == "web_search"
+    assert body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "web_search"
 
     # Effects on the DB:
     async with auth_setup.sm() as session:
@@ -282,9 +278,7 @@ async def test_plain_text_response_leaves_tool_names_null(auth_setup) -> None:  
     """A plain chat response (no tool_calls) writes NULL into both
     tool_names columns — not the empty string. Matters because dashboards
     distinguish 'no tools' from 'unknown tool'."""
-    respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(200, json=_groq_text_response("hi"))
-    )
+    respx.post(GROQ_URL).mock(return_value=httpx.Response(200, json=_groq_text_response("hi")))
 
     resp = await auth_setup.client.post(
         "/v1/chat/completions",
@@ -326,9 +320,7 @@ async def test_unconfigured_tool_records_name_but_no_budget_create(auth_setup) -
     )
 
     respx.post(GROQ_URL).mock(
-        return_value=httpx.Response(
-            200, json=_groq_tool_call_response("rogue_tool")
-        )
+        return_value=httpx.Response(200, json=_groq_tool_call_response("rogue_tool"))
     )
 
     resp = await auth_setup.client.post(
@@ -345,9 +337,7 @@ async def test_unconfigured_tool_records_name_but_no_budget_create(auth_setup) -
     async with auth_setup.sm() as session:
         team = await session.get(Team, auth_setup.team_id)
         assert team is not None
-        assert team.tool_budgets == {
-            "known_tool": {"limit_calls": 10, "current_calls": 0}
-        }
+        assert team.tool_budgets == {"known_tool": {"limit_calls": 10, "current_calls": 0}}
 
         usage_row = (
             await session.execute(

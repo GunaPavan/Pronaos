@@ -75,9 +75,7 @@ async def _enable_llama_guard_for_team(
     """
     async with auth_setup.sm() as session:
         await session.execute(
-            update(Team)
-            .where(Team.id == auth_setup.team_id)
-            .values(guardrail_policy=policy)
+            update(Team).where(Team.id == auth_setup.team_id).values(guardrail_policy=policy)
         )
         await session.commit()
     # Install a classifier on the live app — same path the lifespan

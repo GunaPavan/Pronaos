@@ -60,9 +60,7 @@ def _b64url_decode(s: str) -> bytes:
 
 
 class TestParseServiceAccountJson:
-    def test_accepts_valid_sa_json(
-        self, rsa_keypair: tuple[rsa.RSAPrivateKey, bytes]
-    ) -> None:
+    def test_accepts_valid_sa_json(self, rsa_keypair: tuple[rsa.RSAPrivateKey, bytes]) -> None:
         _, pem = rsa_keypair
         data = {
             "type": "service_account",
@@ -75,9 +73,7 @@ class TestParseServiceAccountJson:
         assert sa.token_uri == "https://oauth2.googleapis.com/token"
         assert b"BEGIN" in sa.private_key_pem
 
-    def test_rejects_wrong_type(
-        self, rsa_keypair: tuple[rsa.RSAPrivateKey, bytes]
-    ) -> None:
+    def test_rejects_wrong_type(self, rsa_keypair: tuple[rsa.RSAPrivateKey, bytes]) -> None:
         _, pem = rsa_keypair
         data = {
             "type": "user",  # wrong
@@ -120,23 +116,17 @@ class TestParseServiceAccountJson:
 
 
 class TestJwtSigning:
-    def test_jwt_shape_is_three_dot_separated(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    def test_jwt_shape_is_three_dot_separated(self, sa_key: _ServiceAccountKey) -> None:
         jwt = _sign_assertion(sa_key, now_unix=1_700_000_000)
         assert jwt.count(".") == 2
 
-    def test_header_decodes_to_canonical_rs256(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    def test_header_decodes_to_canonical_rs256(self, sa_key: _ServiceAccountKey) -> None:
         jwt = _sign_assertion(sa_key, now_unix=1_700_000_000)
         parts = jwt.split(".")
         header = json.loads(_b64url_decode(parts[0]))
         assert header == {"alg": "RS256", "typ": "JWT"}
 
-    def test_claims_contain_required_fields(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    def test_claims_contain_required_fields(self, sa_key: _ServiceAccountKey) -> None:
         now = 1_700_000_000
         jwt = _sign_assertion(sa_key, now_unix=now, ttl_seconds=3600)
         parts = jwt.split(".")
@@ -160,9 +150,7 @@ class TestJwtSigning:
         signing_input = f"{parts[0]}.{parts[1]}".encode()
         signature = _b64url_decode(parts[2])
         # If signing was wrong, this verify() raises.
-        priv.public_key().verify(
-            signature, signing_input, padding.PKCS1v15(), hashes.SHA256()
-        )
+        priv.public_key().verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
 
     def test_sign_rejects_non_rsa_key(self) -> None:
         """A future GCP rotation that switched to EC keys would not
@@ -200,9 +188,7 @@ class TestTokenExchange:
             def _capture(request: httpx.Request) -> httpx.Response:
                 # The grant_type + assertion arrive as form-encoded body.
                 form = httpx.QueryParams(request.content.decode("utf-8"))
-                assert form.get("grant_type") == (
-                    "urn:ietf:params:oauth:grant-type:jwt-bearer"
-                )
+                assert form.get("grant_type") == ("urn:ietf:params:oauth:grant-type:jwt-bearer")
                 assertion = form.get("assertion") or ""
                 captured_jwt.append(assertion)
                 return httpx.Response(
@@ -214,9 +200,7 @@ class TestTokenExchange:
                     },
                 )
 
-            mock.post("https://oauth2.googleapis.com/token").mock(
-                side_effect=_capture
-            )
+            mock.post("https://oauth2.googleapis.com/token").mock(side_effect=_capture)
 
             auth = VertexAuth(service_account=sa_key, now_fn=lambda: 1_700_000_000)
             try:
@@ -230,14 +214,10 @@ class TestTokenExchange:
         parts = jwt.split(".")
         signing_input = f"{parts[0]}.{parts[1]}".encode()
         signature = _b64url_decode(parts[2])
-        priv.public_key().verify(
-            signature, signing_input, padding.PKCS1v15(), hashes.SHA256()
-        )
+        priv.public_key().verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
 
     @pytest.mark.asyncio
-    async def test_caches_token_within_validity(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    async def test_caches_token_within_validity(self, sa_key: _ServiceAccountKey) -> None:
         """Two calls within the token's validity → one HTTP exchange."""
         call_count = 0
 
@@ -262,9 +242,7 @@ class TestTokenExchange:
         assert call_count == 1
 
     @pytest.mark.asyncio
-    async def test_refreshes_after_leeway_window(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    async def test_refreshes_after_leeway_window(self, sa_key: _ServiceAccountKey) -> None:
         """When the clock advances past ``exp - leeway``, the next
         access_token() call refreshes."""
         call_count = 0
@@ -294,9 +272,7 @@ class TestTokenExchange:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_oauth_error_raises_loudly(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    async def test_oauth_error_raises_loudly(self, sa_key: _ServiceAccountKey) -> None:
         """A 400 with ``invalid_grant`` (typical clock-skew failure)
         becomes a VertexAuthError with the upstream detail attached."""
         with respx.mock(assert_all_called=True) as mock:
@@ -317,9 +293,7 @@ class TestTokenExchange:
                 await auth.aclose()
 
     @pytest.mark.asyncio
-    async def test_authorization_header_format(
-        self, sa_key: _ServiceAccountKey
-    ) -> None:
+    async def test_authorization_header_format(self, sa_key: _ServiceAccountKey) -> None:
         with respx.mock(assert_all_called=True) as mock:
             mock.post("https://oauth2.googleapis.com/token").mock(
                 return_value=httpx.Response(

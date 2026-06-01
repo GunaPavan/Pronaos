@@ -28,9 +28,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _grant_scope(sm, key_id: str, scopes: str) -> None:  # type: ignore[no-untyped-def]
     async with sm() as session:
-        await session.execute(
-            update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes)
-        )
+        await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(scopes=scopes))
         await session.commit()
 
 
@@ -57,9 +55,7 @@ async def _install_circuit_registry(client) -> CircuitBreakerRegistry:  # type: 
 @pytest.mark.asyncio
 async def test_providers_list_returns_catalog_shape(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/providers", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/providers", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     body = r.json()
     assert "items" in body and isinstance(body["items"], list)
@@ -82,9 +78,7 @@ async def test_providers_list_returns_catalog_shape(auth_setup) -> None:  # type
 @pytest.mark.asyncio
 async def test_providers_includes_anthropic_native(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/providers", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/providers", headers=_auth(auth_setup.api_key))
     names = {row["name"] for row in r.json()["items"]}
     assert "anthropic" in names
     assert "groq" in names
@@ -93,9 +87,7 @@ async def test_providers_includes_anthropic_native(auth_setup) -> None:  # type:
 @pytest.mark.asyncio
 async def test_providers_sort_configured_first(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/providers", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/providers", headers=_auth(auth_setup.api_key))
     items = r.json()["items"]
     configured_flags = [row["configured"] for row in items]
     # Once we hit the first False, every subsequent row must be False too.
@@ -117,9 +109,7 @@ async def test_providers_surfaces_live_circuit_state(auth_setup) -> None:  # typ
         breaker.record_failure()
     assert breaker.state.value == "open"
 
-    r = await auth_setup.client.get(
-        "/v1/admin/providers", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/providers", headers=_auth(auth_setup.api_key))
     groq_row = next(row for row in r.json()["items"] if row["name"] == "groq")
     assert groq_row["circuit_state"] == "open"
 
@@ -127,9 +117,7 @@ async def test_providers_surfaces_live_circuit_state(auth_setup) -> None:  # typ
 @pytest.mark.asyncio
 async def test_providers_get_requires_admin_usage(auth_setup) -> None:  # type: ignore[no-untyped-def]
     # Default key only has chat:write.
-    r = await auth_setup.client.get(
-        "/v1/admin/providers", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/providers", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403
 
 
@@ -186,9 +174,7 @@ async def test_reset_breaker_requires_admin_identity(auth_setup) -> None:  # typ
 @pytest.mark.asyncio
 async def test_doctor_returns_gate_report(auth_setup) -> None:  # type: ignore[no-untyped-def]
     await _grant_scope(auth_setup.sm, auth_setup.key_id, "admin:usage")
-    r = await auth_setup.client.get(
-        "/v1/admin/doctor", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/doctor", headers=_auth(auth_setup.api_key))
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body.keys()) == {"gates", "summary", "has_fail", "has_warn"}
@@ -209,7 +195,5 @@ async def test_doctor_returns_gate_report(auth_setup) -> None:  # type: ignore[n
 
 @pytest.mark.asyncio
 async def test_doctor_requires_admin_usage(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    r = await auth_setup.client.get(
-        "/v1/admin/doctor", headers=_auth(auth_setup.api_key)
-    )
+    r = await auth_setup.client.get("/v1/admin/doctor", headers=_auth(auth_setup.api_key))
     assert r.status_code == 403

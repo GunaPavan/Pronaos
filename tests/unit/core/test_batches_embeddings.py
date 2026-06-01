@@ -99,9 +99,7 @@ class TestProviderFromModelEmbeddings:
         assert provider_from_model("text-embedding-3-large") == "openai"
 
     def test_explicit_openai_prefix_still_works(self) -> None:
-        assert (
-            provider_from_model("openai/text-embedding-3-small") == "openai"
-        )
+        assert provider_from_model("openai/text-embedding-3-small") == "openai"
 
     def test_voyage_embedding_still_rejected(self) -> None:
         """Voyage has embeddings but no batches API. Without an
@@ -120,9 +118,7 @@ async def test_openai_submit_passes_endpoint_to_upstream() -> None:
         return_value=httpx.Response(200, json={"id": "file-emb-1"})
     )
     create = respx.post("https://api.openai.com/v1/batches").mock(
-        return_value=httpx.Response(
-            200, json={"id": "batch_emb_1", "status": "validating"}
-        )
+        return_value=httpx.Response(200, json={"id": "batch_emb_1", "status": "validating"})
     )
     client = OpenAIBatchClient(api_key="sk-test")
     try:
@@ -145,9 +141,7 @@ async def test_openai_submit_defaults_to_chat() -> None:
         return_value=httpx.Response(200, json={"id": "file-chat-1"})
     )
     create = respx.post("https://api.openai.com/v1/batches").mock(
-        return_value=httpx.Response(
-            200, json={"id": "batch_chat_1", "status": "validating"}
-        )
+        return_value=httpx.Response(200, json={"id": "batch_chat_1", "status": "validating"})
     )
     client = OpenAIBatchClient(api_key="sk-test")
     try:
@@ -181,32 +175,35 @@ class TestEmbeddingResultParser:
         """OpenAI's embedding result body has no completion_tokens —
         the existing parser already returns 0 for it (via the
         ``or 0`` fallback). Verify the contract."""
-        jsonl = json.dumps(
-            {
-                "id": "out_emb_1",
-                "custom_id": "doc-1",
-                "response": {
-                    "body": {
-                        "object": "list",
-                        "data": [
-                            {
-                                "index": 0,
-                                "object": "embedding",
-                                "embedding": [0.01, 0.02, 0.03],
-                            }
-                        ],
-                        "model": "text-embedding-3-small",
-                        "usage": {
-                            "prompt_tokens": 7,
-                            "total_tokens": 7,
-                            # NOTE: no completion_tokens field in
-                            # the OpenAI embedding response shape.
-                        },
-                    }
-                },
-                "error": None,
-            }
-        ) + "\n"
+        jsonl = (
+            json.dumps(
+                {
+                    "id": "out_emb_1",
+                    "custom_id": "doc-1",
+                    "response": {
+                        "body": {
+                            "object": "list",
+                            "data": [
+                                {
+                                    "index": 0,
+                                    "object": "embedding",
+                                    "embedding": [0.01, 0.02, 0.03],
+                                }
+                            ],
+                            "model": "text-embedding-3-small",
+                            "usage": {
+                                "prompt_tokens": 7,
+                                "total_tokens": 7,
+                                # NOTE: no completion_tokens field in
+                                # the OpenAI embedding response shape.
+                            },
+                        }
+                    },
+                    "error": None,
+                }
+            )
+            + "\n"
+        )
         rows = parse_openai_result_jsonl(jsonl)
         assert len(rows) == 1
         assert rows[0].is_error is False

@@ -217,9 +217,7 @@ class ToolResultCache:
             # transactional accuracy here.
             payload["n_hits"] = int(payload.get("n_hits", 0)) + 1
             with contextlib.suppress(Exception):
-                await self._redis.hset(
-                    key, field, json.dumps(payload, separators=(",", ":"))
-                )
+                await self._redis.hset(key, field, json.dumps(payload, separators=(",", ":")))
             return result
         except (ValueError, TypeError):
             return None

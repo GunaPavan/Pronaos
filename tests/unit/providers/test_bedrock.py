@@ -304,9 +304,7 @@ class TestNovaBodyShape:
         parts = body["messages"][0]["content"]
         assert parts[0] == {"text": "what's in this image?"}
         # Image part uses Nova's {"image": {"format": "png", "source": {"bytes": "..."}}} shape.
-        assert parts[1] == {
-            "image": {"format": "png", "source": {"bytes": "iVBORw=="}}
-        }
+        assert parts[1] == {"image": {"format": "png", "source": {"bytes": "iVBORw=="}}}
 
 
 class TestMistralBodyShape:
@@ -583,8 +581,7 @@ async def test_adapter_handles_llama_response() -> None:
     """Llama-on-Bedrock returns its own response shape; the adapter
     translates to the canonical ChatCompletionChunk."""
     url = (
-        "https://bedrock-runtime.us-east-1.amazonaws.com/"
-        "model/meta.llama3-70b-instruct-v1:0/invoke"
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/meta.llama3-70b-instruct-v1:0/invoke"
     )
     route = respx.post(url).mock(
         return_value=httpx.Response(
@@ -810,9 +807,7 @@ def _make_bedrock_stream_body(payloads: list[dict[str, object]]) -> bytes:
     frames = []
     for p in payloads:
         inner = json.dumps(p).encode("utf-8")
-        wrapped = json.dumps({"bytes": base64.b64encode(inner).decode()}).encode(
-            "utf-8"
-        )
+        wrapped = json.dumps({"bytes": base64.b64encode(inner).decode()}).encode("utf-8")
         frames.append(
             encode_frame(
                 headers={
@@ -886,12 +881,8 @@ class TestAnthropicOnBedrockStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
-            route = mock.post(
-                re.compile(r".*/invoke-with-response-stream$")
-            ).mock(
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
+            route = mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
                     content=body,
@@ -960,9 +951,7 @@ class TestAnthropicOnBedrockStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
@@ -1040,9 +1029,7 @@ class TestAnthropicOnBedrockStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
@@ -1095,9 +1082,7 @@ class TestLlamaOnBedrockStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
@@ -1157,9 +1142,7 @@ class TestNovaStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
@@ -1181,9 +1164,7 @@ class TestNovaStreaming:
         assert finish_chunks[0].finish_reason == "stop"
         # metadata frame surfaces the usage on its own chunk
         usage_chunks = [
-            c
-            for c in chunks
-            if c.prompt_tokens is not None or c.completion_tokens is not None
+            c for c in chunks if c.prompt_tokens is not None or c.completion_tokens is not None
         ]
         assert usage_chunks
         usage = usage_chunks[-1]
@@ -1206,9 +1187,7 @@ class TestMistralOnBedrockStreaming:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,
@@ -1242,9 +1221,7 @@ class TestBedrockStreamingErrors:
             secret_access_key=TEST_SECRET_KEY,
             region=TEST_REGION,
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     400,
@@ -1279,9 +1256,7 @@ class TestBedrockStreamingErrors:
             headers={":message-type": "exception"},
             payload=b'{"errorMessage":"throttled"}',
         )
-        with respx.mock(
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
-        ) as mock:
+        with respx.mock(base_url="https://bedrock-runtime.us-east-1.amazonaws.com") as mock:
             mock.post(re.compile(r".*/invoke-with-response-stream$")).mock(
                 return_value=httpx.Response(
                     200,

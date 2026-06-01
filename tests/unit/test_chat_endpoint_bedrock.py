@@ -78,9 +78,7 @@ async def test_chat_routes_to_bedrock_anthropic(auth_setup) -> None:  # type: ig
     assert sent_body["anthropic_version"] == "bedrock-2023-05-31"
     # CRITICAL: no top-level ``model`` field (model is in the URL path).
     assert "model" not in sent_body
-    assert sent_body["messages"] == [
-        {"role": "user", "content": "What's the capital of France?"}
-    ]
+    assert sent_body["messages"] == [{"role": "user", "content": "What's the capital of France?"}]
     assert sent_body["max_tokens"] == 20
 
 
@@ -91,8 +89,7 @@ async def test_chat_routes_to_bedrock_llama(auth_setup) -> None:  # type: ignore
     ``max_gen_len``, NOT the Anthropic ``messages`` envelope. The
     discriminator is the model ID prefix (``meta.*``)."""
     url = (
-        "https://bedrock-runtime.us-east-1.amazonaws.com/"
-        "model/meta.llama3-70b-instruct-v1:0/invoke"
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/meta.llama3-70b-instruct-v1:0/invoke"
     )
     route = respx.post(url).mock(
         return_value=httpx.Response(

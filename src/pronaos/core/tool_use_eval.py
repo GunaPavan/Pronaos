@@ -215,9 +215,7 @@ def score_case(case: ToolUseCase, response_body: dict[str, Any]) -> ToolUseScore
 def _score_simple(case: ToolUseCase, tool_calls: list[dict[str, Any]]) -> ToolUseScore:
     """Single-call case: exactly one tool call with the right name + args."""
     if not tool_calls:
-        return ToolUseScore(
-            case_id=case.case_id, passed=False, reason="missing_call"
-        )
+        return ToolUseScore(case_id=case.case_id, passed=False, reason="missing_call")
     if len(tool_calls) > 1:
         return ToolUseScore(
             case_id=case.case_id,
@@ -293,9 +291,9 @@ def _score_parallel(case: ToolUseCase, tool_calls: list[dict[str, Any]]) -> Tool
             return ToolUseScore(
                 case_id=case.case_id,
                 passed=False,
-                reason="wrong_function" if not _has_call_with_name(
-                    remaining, call.get("name")
-                ) else "wrong_args",
+                reason="wrong_function"
+                if not _has_call_with_name(remaining, call.get("name"))
+                else "wrong_args",
                 observed_function=call.get("name"),
                 observed_args=call.get("arguments", {}),
             )

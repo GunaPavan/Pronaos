@@ -322,15 +322,11 @@ class Settings(BaseSettings):
     # helper auto-detects which it received.
     vertex_project_id: str | None = Field(
         default=None,
-        validation_alias=AliasChoices(
-            "PRONAOS_VERTEX_PROJECT_ID", "VERTEX_PROJECT_ID"
-        ),
+        validation_alias=AliasChoices("PRONAOS_VERTEX_PROJECT_ID", "VERTEX_PROJECT_ID"),
     )
     vertex_region: str = Field(
         default="us-central1",
-        validation_alias=AliasChoices(
-            "PRONAOS_VERTEX_REGION", "VERTEX_REGION"
-        ),
+        validation_alias=AliasChoices("PRONAOS_VERTEX_REGION", "VERTEX_REGION"),
     )
     vertex_service_account_json: str | None = Field(
         default=None,

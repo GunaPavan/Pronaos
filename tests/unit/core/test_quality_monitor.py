@@ -165,10 +165,14 @@ class TestRecordSample:
         # Verify it landed.
         async with sessionmaker_() as session:
             rows = (
-                await session.execute(
-                    select(QualitySample).where(QualitySample.team_id == team_id)
+                (
+                    await session.execute(
+                        select(QualitySample).where(QualitySample.team_id == team_id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(rows) == 1
             assert rows[0].score == pytest.approx(0.85)
 
@@ -237,7 +241,12 @@ class TestCheckDegradation:
     async def test_degradation_detected(self, sessionmaker_) -> None:  # type: ignore[no-untyped-def]
         tenant_id, team_id = await _seed_team(
             sessionmaker_,
-            quality_scores={"m": {"score": 0.9, "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91]}},
+            quality_scores={
+                "m": {
+                    "score": 0.9,
+                    "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91],
+                }
+            },
         )
         # Seed enough recent samples that are SIGNIFICANTLY worse.
         await _seed_samples(
@@ -268,7 +277,12 @@ class TestCheckDegradation:
         """Recent samples close to baseline → no degradation flagged."""
         tenant_id, team_id = await _seed_team(
             sessionmaker_,
-            quality_scores={"m": {"score": 0.9, "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91]}},
+            quality_scores={
+                "m": {
+                    "score": 0.9,
+                    "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91],
+                }
+            },
         )
         await _seed_samples(
             sessionmaker_,
@@ -287,7 +301,12 @@ class TestCheckDegradation:
         """Previously degraded → recent samples back to baseline → recovered."""
         tenant_id, team_id = await _seed_team(
             sessionmaker_,
-            quality_scores={"m": {"score": 0.9, "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91]}},
+            quality_scores={
+                "m": {
+                    "score": 0.9,
+                    "samples": [0.88, 0.92, 0.91, 0.89, 0.93, 0.87, 0.90, 0.94, 0.86, 0.91],
+                }
+            },
             degradation_state={
                 "m": {
                     "degraded": True,
@@ -321,9 +340,7 @@ class TestCheckDegradation:
     @pytest.mark.asyncio
     async def test_min_recent_default_respected(self, sessionmaker_) -> None:  # type: ignore[no-untyped-def]
         """Confirm the default min_recent threshold guards small samples."""
-        tenant_id, team_id = await _seed_team(
-            sessionmaker_, quality_scores={"m": {"score": 0.9}}
-        )
+        tenant_id, team_id = await _seed_team(sessionmaker_, quality_scores={"m": {"score": 0.9}})
         # Seed exactly min_recent - 1 samples.
         await _seed_samples(
             sessionmaker_,
