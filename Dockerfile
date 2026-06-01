@@ -15,6 +15,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 WORKDIR /build
 
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,7 +33,10 @@ ENV PYTHONUNBUFFERED=1 \
     PRONAOS_HOST=0.0.0.0 \
     PRONAOS_PORT=8080
 
-RUN groupadd --system --gid 1000 pronaos \
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 1000 pronaos \
     && useradd  --system --uid 1000 --gid pronaos --home /app --shell /usr/sbin/nologin pronaos
 
 WORKDIR /app
