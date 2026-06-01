@@ -1,0 +1,361 @@
+name: tool_use_basic
+description: |
+  BFCL-style tool-use accuracy evaluation set (Phase 45). Cases span
+  the Berkeley Function-Calling Leaderboard categories:
+
+  - **simple**: one obvious tool, one obvious parameter set
+  - **selection**: multiple tools available, pick the right one
+  - **arguments**: same tool but the right arguments matter
+    (typing, units, choices)
+  - **relevance**: NO tool should be called — the prompt is
+    chitchat or doesn't need any of the available tools
+  - **parallel**: two tools should be called in one response
+
+  Each case has:
+    - id, category, tags
+    - prompt: the user message
+    - tools: OpenAI-shape tool definitions to pass to the model
+    - expected_function: name of the tool the model should call,
+      or null/None for the relevance category (no tool call)
+    - expected_args: the canonical args dict. For arg comparison
+      we use AST-equivalent matching — 5 == 5.0, key order
+      independent, nested dicts compared recursively.
+    - expected_parallel: optional list of (function, args) tuples
+      for parallel-call cases.
+
+  The set is deliberately small (12 cases) so a single run takes <30s
+  against Groq's 8B and is bounded in cost. Larger BFCL subsets are a
+  worthy follow-up — the scorer scales.
+
+cases:
+  # ---------------------------------------------------------------- #
+  # simple — one tool, one obvious parameter set                    #
+  # ---------------------------------------------------------------- #
+  - id: weather_simple
+    category: simple
+    tags: [single_tool, single_arg]
+    prompt: What's the weather like in Paris right now?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city:
+                type: string
+                description: The city name.
+            required: [city]
+    expected_function: get_weather
+    expected_args:
+      city: Paris
+
+  - id: calc_tip_simple
+    category: simple
+    tags: [single_tool, numeric_args]
+    prompt: Calculate a 20% tip on a $45 bill.
+    tools:
+      - type: function
+        function:
+          name: calculate_tip
+          description: Calculate a tip amount.
+          parameters:
+            type: object
+            properties:
+              bill_amount:
+                type: number
+                description: The bill amount in dollars.
+              tip_percent:
+                type: number
+                description: The tip percentage (e.g. 15 for 15%).
+            required: [bill_amount, tip_percent]
+    expected_function: calculate_tip
+    expected_args:
+      bill_amount: 45
+      tip_percent: 20
+
+  - id: time_simple
+    category: simple
+    tags: [single_tool, single_arg]
+    prompt: What time is it in Tokyo?
+    tools:
+      - type: function
+        function:
+          name: get_current_time
+          description: Get current local time for a timezone.
+          parameters:
+            type: object
+            properties:
+              timezone:
+                type: string
+                description: IANA timezone name (e.g. "Asia/Tokyo").
+            required: [timezone]
+    expected_function: get_current_time
+    expected_args:
+      timezone: Asia/Tokyo
+
+  # ---------------------------------------------------------------- #
+  # selection — many tools, pick the right one                      #
+  # ---------------------------------------------------------------- #
+  - id: select_weather_from_many
+    category: selection
+    tags: [multi_tool_selection]
+    prompt: I'm planning a trip to Tokyo. What's the weather there?
+    tools:
+      - type: function
+        function:
+          name: book_flight
+          description: Book a flight.
+          parameters:
+            type: object
+            properties:
+              destination: {type: string}
+            required: [destination]
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+      - type: function
+        function:
+          name: convert_currency
+          description: Convert currency.
+          parameters:
+            type: object
+            properties:
+              from_currency: {type: string}
+              to_currency: {type: string}
+              amount: {type: number}
+            required: [from_currency, to_currency, amount]
+    expected_function: get_weather
+    expected_args:
+      city: Tokyo
+
+  - id: select_currency_from_many
+    category: selection
+    tags: [multi_tool_selection]
+    prompt: How much is 100 USD in JPY today?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+      - type: function
+        function:
+          name: convert_currency
+          description: Convert an amount from one currency to another.
+          parameters:
+            type: object
+            properties:
+              from_currency: {type: string, description: ISO 4217 code}
+              to_currency: {type: string, description: ISO 4217 code}
+              amount: {type: number}
+            required: [from_currency, to_currency, amount]
+      - type: function
+        function:
+          name: book_flight
+          description: Book a flight.
+          parameters:
+            type: object
+            properties:
+              destination: {type: string}
+            required: [destination]
+    expected_function: convert_currency
+    expected_args:
+      from_currency: USD
+      to_currency: JPY
+      amount: 100
+
+  # ---------------------------------------------------------------- #
+  # arguments — typing / units / enum choice matters                #
+  # ---------------------------------------------------------------- #
+  - id: args_enum_unit
+    category: arguments
+    tags: [enum_arg]
+    prompt: Get the weather for London in celsius.
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather with unit choice.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+              unit:
+                type: string
+                enum: [celsius, fahrenheit]
+                description: Temperature unit.
+            required: [city, unit]
+    expected_function: get_weather
+    expected_args:
+      city: London
+      unit: celsius
+
+  - id: args_int_vs_string
+    category: arguments
+    tags: [typing]
+    prompt: Search the catalog for items with id 42.
+    tools:
+      - type: function
+        function:
+          name: get_item
+          description: Look up an item by integer ID.
+          parameters:
+            type: object
+            properties:
+              item_id:
+                type: integer
+                description: The integer item ID.
+            required: [item_id]
+    expected_function: get_item
+    expected_args:
+      item_id: 42
+
+  # ---------------------------------------------------------------- #
+  # relevance — NO tool should be called                            #
+  # ---------------------------------------------------------------- #
+  - id: relevance_chitchat
+    category: relevance
+    tags: [no_tool_call]
+    prompt: How are you doing today?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+      - type: function
+        function:
+          name: calculate_tip
+          description: Calculate a tip amount.
+          parameters:
+            type: object
+            properties:
+              bill_amount: {type: number}
+              tip_percent: {type: number}
+            required: [bill_amount, tip_percent]
+    expected_function: null
+    expected_args: {}
+
+  - id: relevance_general_knowledge
+    category: relevance
+    tags: [no_tool_call]
+    prompt: Who wrote Hamlet?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+      - type: function
+        function:
+          name: book_flight
+          description: Book a flight.
+          parameters:
+            type: object
+            properties:
+              destination: {type: string}
+            required: [destination]
+    expected_function: null
+    expected_args: {}
+
+  - id: relevance_no_matching_tool
+    category: relevance
+    tags: [no_tool_call]
+    prompt: Translate "hello" into Spanish.
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+    expected_function: null
+    expected_args: {}
+
+  # ---------------------------------------------------------------- #
+  # parallel — two tool calls in one response                       #
+  # ---------------------------------------------------------------- #
+  - id: parallel_two_weather
+    category: parallel
+    tags: [parallel_tools]
+    prompt: What's the weather in both Paris and London?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+    # Parallel-call cases use a list-of-(function, args) tuple form
+    # so the scorer can compare unordered. Single-call expected_*
+    # fields stay None.
+    expected_function: null
+    expected_args: {}
+    expected_parallel:
+      - function: get_weather
+        args:
+          city: Paris
+      - function: get_weather
+        args:
+          city: London
+
+  - id: parallel_weather_and_tip
+    category: parallel
+    tags: [parallel_tools, mixed_tools]
+    prompt: Tell me the weather in Tokyo, and calculate a 15% tip on a $80 bill.
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get current weather for a city.
+          parameters:
+            type: object
+            properties:
+              city: {type: string}
+            required: [city]
+      - type: function
+        function:
+          name: calculate_tip
+          description: Calculate a tip amount.
+          parameters:
+            type: object
+            properties:
+              bill_amount: {type: number}
+              tip_percent: {type: number}
+            required: [bill_amount, tip_percent]
+    expected_function: null
+    expected_args: {}
+    expected_parallel:
+      - function: get_weather
+        args:
+          city: Tokyo
+      - function: calculate_tip
+        args:
+          bill_amount: 80
+          tip_percent: 15

@@ -36,9 +36,7 @@ def test_single_message_includes_per_message_overhead() -> None:
     """One short message → at minimum the per-message overhead (4
     tokens) PLUS the response budget. The text body itself contributes
     on top."""
-    out = estimate_tokens(
-        [{"role": "user", "content": "hi"}], max_completion_tokens=10
-    )
+    out = estimate_tokens([{"role": "user", "content": "hi"}], max_completion_tokens=10)
     # 4 (overhead) + ~1 (text "hi") + 10 (completion)
     assert out >= PER_MESSAGE_OVERHEAD + 10
     assert out <= PER_MESSAGE_OVERHEAD + 5 + 10  # generous upper bound
@@ -95,9 +93,7 @@ def test_english_prompts_calibrated_to_groq_actuals(
     If a test fails after a model upgrade, RE-RUN the calibration
     rather than loosening the bounds blindly — the constant
     WORDS_TO_TOKENS_FACTOR can be tuned."""
-    out = estimate_tokens(
-        [{"role": "user", "content": text}], max_completion_tokens=0
-    )
+    out = estimate_tokens([{"role": "user", "content": text}], max_completion_tokens=0)
     # Subtract the per-message overhead so we're comparing the text
     # estimate alone against the per-text expected range.
     text_only = out - PER_MESSAGE_OVERHEAD
@@ -125,9 +121,7 @@ def test_cjk_uses_char_heuristic() -> None:
     false-positive denial); the post-flight token count still
     enforces the real budget correctly."""
     japanese = "こんにちは世界今日はいい天気です"
-    out = estimate_tokens(
-        [{"role": "user", "content": japanese}], max_completion_tokens=0
-    )
+    out = estimate_tokens([{"role": "user", "content": japanese}], max_completion_tokens=0)
     text_only = out - PER_MESSAGE_OVERHEAD
     # Just verify the non-Latin branch produced a non-zero estimate,
     # not the exact value (which is a known under-estimate; documented
@@ -186,12 +180,8 @@ def test_longer_text_estimates_more_tokens() -> None:
     """Sanity check: more content → more tokens. This is the property
     the pre-flight gate actually depends on (longer prompt → more
     likely to exceed remaining budget)."""
-    short = estimate_tokens(
-        [{"role": "user", "content": "hi"}], max_completion_tokens=0
-    )
-    long = estimate_tokens(
-        [{"role": "user", "content": "hi " * 100}], max_completion_tokens=0
-    )
+    short = estimate_tokens([{"role": "user", "content": "hi"}], max_completion_tokens=0)
+    long = estimate_tokens([{"role": "user", "content": "hi " * 100}], max_completion_tokens=0)
     assert long > short
 
 

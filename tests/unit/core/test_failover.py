@@ -153,9 +153,7 @@ async def test_breaker_opens_after_threshold_consecutive_failures() -> None:
 
     # Three requests, each one fails the primary and succeeds via fallback.
     for _ in range(3):
-        provider, _ = await execute_with_failover(
-            plan, _req(), circuit_registry=registry
-        )
+        provider, _ = await execute_with_failover(plan, _req(), circuit_registry=registry)
         assert provider.name == "fallback"
 
     # Primary's breaker is OPEN; fallback's is CLOSED.
@@ -182,9 +180,7 @@ async def test_open_breaker_skips_primary_entirely() -> None:
     primary_calls_before = primary.call_count  # 2
 
     # Next request: primary should be skipped entirely.
-    provider, stream = await execute_with_failover(
-        plan, _req(), circuit_registry=registry
-    )
+    provider, stream = await execute_with_failover(plan, _req(), circuit_registry=registry)
     chunks = [c async for c in stream]
 
     assert provider.name == "fallback"
@@ -241,6 +237,7 @@ async def test_success_resets_failure_streak() -> None:
                     prompt_tokens=1,
                     completion_tokens=1,
                 )
+
             return _iter()
 
         def cost_cents(self, p: int, c: int, m: str) -> int:

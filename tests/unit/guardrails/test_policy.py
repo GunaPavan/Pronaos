@@ -103,9 +103,7 @@ def test_engine_policy_override_changes_action() -> None:
     assert len(v1.hits) >= 1
 
     # Override to REDACT → hits AND text changes.
-    v2 = engine.scan_ingress(
-        text, policy_override={"injection": GuardrailAction.REDACT}
-    )
+    v2 = engine.scan_ingress(text, policy_override={"injection": GuardrailAction.REDACT})
     assert v2.text != text
     assert "[REDACTED-INJECTION]" in v2.text
 
@@ -125,9 +123,7 @@ def test_engine_override_precedence_over_engine_policy() -> None:
     assert v1.blocked is True
 
     # Override to REDACT → no block, text redacted instead.
-    v2 = engine.scan_ingress(
-        text, policy_override={"injection": GuardrailAction.REDACT}
-    )
+    v2 = engine.scan_ingress(text, policy_override={"injection": GuardrailAction.REDACT})
     assert v2.blocked is False
     assert "[REDACTED-INJECTION]" in v2.text
 
@@ -191,3 +187,82 @@ def test_validate_policy_rejects_unknown_keys() -> None:
 def test_validate_policy_rejects_non_list_disabled_rules() -> None:
     errors = validate_policy({"disabled_rules": "pii.ipv4"})  # type: ignore[arg-type]
     assert errors
+
+
+# --------------------------------------------------------------------------- #
+# Presidio block (Phase 22)                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_validate_policy_accepts_well_formed_presidio_block() -> None:
+    errors = validate_policy(
+        {
+            "presidio": {
+                "enabled": True,
+                "min_score": 0.7,
+                "entities": ["PERSON", "LOCATION"],
+            }
+        }
+    )
+    assert errors == []
+
+
+def test_validate_policy_rejects_non_mapping_presidio() -> None:
+    errors = validate_policy({"presidio": "yes"})  # type: ignore[arg-type]
+    assert errors
+    assert any("presidio" in e for e in errors)
+
+
+def test_validate_policy_rejects_unknown_presidio_keys() -> None:
+    errors = validate_policy({"presidio": {"enabled": True, "wat": 1}})
+    assert errors
+    assert any("wat" in e for e in errors)
+
+
+def test_validate_policy_rejects_non_bool_enabled() -> None:
+    errors = validate_policy({"presidio": {"enabled": "yes"}})  # type: ignore[dict-item]
+    assert errors
+    assert any("enabled" in e for e in errors)
+
+
+def test_validate_policy_rejects_out_of_range_min_score() -> None:
+    errors = validate_policy({"presidio": {"min_score": 1.5}})
+    assert errors
+    assert any("min_score" in e for e in errors)
+
+
+def test_validate_policy_rejects_non_list_entities() -> None:
+    errors = validate_policy({"presidio": {"entities": "PERSON"}})  # type: ignore[dict-item]
+    assert errors
+    assert any("entities" in e for e in errors)
+
+
+def test_resolve_policy_translates_presidio_disabled_to_disabled_rules() -> None:
+    """The team-friendly shorthand: ``{"presidio": {"enabled": false}}``
+    must add ``presidio`` to disabled_rules so the engine skips the
+    ML detector for this team."""
+    disabled, override = resolve_policy({"presidio": {"enabled": False}})
+    assert disabled is not None
+    assert "presidio" in disabled
+
+
+def test_resolve_policy_does_not_disable_when_presidio_enabled_true() -> None:
+    """The inverse: enabled=True must NOT add presidio to disabled_rules
+    (the operator-level Settings flag is still authoritative for
+    whether the detector exists at all)."""
+    disabled, override = resolve_policy({"presidio": {"enabled": True}})
+    # No disabling expected from this block alone.
+    assert disabled is None or "presidio" not in disabled
+
+
+def test_resolve_policy_merges_presidio_disable_with_existing_disabled_rules() -> None:
+    """When BOTH ``disabled_rules`` and ``presidio.enabled=false`` are
+    specified, the resolver must produce a UNION — not pick one or
+    the other."""
+    disabled, _ = resolve_policy(
+        {
+            "disabled_rules": ["pii.ipv4"],
+            "presidio": {"enabled": False},
+        }
+    )
+    assert disabled == {"pii.ipv4", "presidio"}

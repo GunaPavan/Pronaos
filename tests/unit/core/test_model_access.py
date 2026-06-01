@@ -58,9 +58,7 @@ def test_provider_wildcard_matches_all_models_under_prefix() -> None:
     assert is_model_allowed("groq/llama-3.3-70b-versatile", policy) is True
     # Nested-namespace models (Groq sometimes does this with Meta-published
     # ids) should also match — fnmatch's ``*`` includes slashes.
-    assert is_model_allowed(
-        "groq/meta-llama/llama-4-scout-17b-16e-instruct", policy
-    ) is True
+    assert is_model_allowed("groq/meta-llama/llama-4-scout-17b-16e-instruct", policy) is True
     assert is_model_allowed("anthropic/claude-opus-4-7", policy) is False
 
 

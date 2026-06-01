@@ -440,9 +440,7 @@ async def test_cost_period_rollover_resets_counter(
         assert team is not None
         # After rollover + the single call: counter should reflect ONLY
         # this call's cost, not the pre-rollover 9,999.
-        assert team.current_period_cost_hcents < 9_999, (
-            "cost counter must reset on rollover"
-        )
+        assert team.current_period_cost_hcents < 9_999, "cost counter must reset on rollover"
 
 
 # --------------------------------------------------------------------------- #

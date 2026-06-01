@@ -64,9 +64,7 @@ def test_sign_payload_matches_handcomputed_hmac() -> None:
     receivers will reject every delivery."""
     body = b'{"event":"test"}'
     secret = "supersecret"
-    expected_hex = hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256
-    ).hexdigest()
+    expected_hex = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
     assert sign_payload(body, secret) == f"sha256={expected_hex}"
 
@@ -382,9 +380,7 @@ async def test_dispatcher_aclose_waits_for_pending_deliveries() -> None:
         try:
             dispatcher.publish(
                 WebhookConfig(url=url, secret="s"),
-                circuit_tripped_event(
-                    tenant_id="t1", provider="groq", trip_count=1
-                ),
+                circuit_tripped_event(tenant_id="t1", provider="groq", trip_count=1),
             )
             # aclose should wait for the delivery, not race it.
             await dispatcher.aclose()

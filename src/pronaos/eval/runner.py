@@ -260,9 +260,7 @@ def _pass_rate(scores: Iterable[float], threshold: float) -> float:
     return sum(1 for s in scores if s >= threshold) / len(scores)
 
 
-def _category_summaries(
-    rows: list[EvalRow], threshold: float
-) -> list[CategorySummary]:
+def _category_summaries(rows: list[EvalRow], threshold: float) -> list[CategorySummary]:
     """Group scored rows by category, computing per-category stats.
 
     Categories with zero scored rows are skipped — they'd produce

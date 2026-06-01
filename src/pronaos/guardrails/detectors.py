@@ -29,16 +29,12 @@ from pronaos.guardrails.base import GuardrailAction, GuardrailRule, RuleHit
 
 # Email: standard local@domain shape. Doesn't try to enforce RFC 5321 exactly
 # (the full grammar is a horror story); covers the 99.9% case.
-_EMAIL_RE: Final = re.compile(
-    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
-)
+_EMAIL_RE: Final = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 # US-style phone: optional +1 country code, area code, exchange, line, with
 # common separators. Won't match every international format — those go on
 # a per-tenant rule shortlist later.
-_PHONE_RE: Final = re.compile(
-    r"(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}\b"
-)
+_PHONE_RE: Final = re.compile(r"(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}\b")
 
 # US SSN: NNN-NN-NNNN. Real SSNs have allocation rules (e.g. area number
 # never 000 or 666); the regex doesn't enforce them — false positives on
@@ -131,28 +127,21 @@ class RegexPIIDetector(GuardrailRule):
 # Factory helpers — one canonical instance per category so the rest of
 # the codebase imports the rule, not the pattern.
 
+
 def email_detector() -> RegexPIIDetector:
-    return RegexPIIDetector(
-        name="pii.email", pattern=_EMAIL_RE, replacement="[REDACTED-EMAIL]"
-    )
+    return RegexPIIDetector(name="pii.email", pattern=_EMAIL_RE, replacement="[REDACTED-EMAIL]")
 
 
 def phone_detector() -> RegexPIIDetector:
-    return RegexPIIDetector(
-        name="pii.phone", pattern=_PHONE_RE, replacement="[REDACTED-PHONE]"
-    )
+    return RegexPIIDetector(name="pii.phone", pattern=_PHONE_RE, replacement="[REDACTED-PHONE]")
 
 
 def ssn_detector() -> RegexPIIDetector:
-    return RegexPIIDetector(
-        name="pii.ssn", pattern=_SSN_RE, replacement="[REDACTED-SSN]"
-    )
+    return RegexPIIDetector(name="pii.ssn", pattern=_SSN_RE, replacement="[REDACTED-SSN]")
 
 
 def ipv4_detector() -> RegexPIIDetector:
-    return RegexPIIDetector(
-        name="pii.ipv4", pattern=_IPV4_RE, replacement="[REDACTED-IP]"
-    )
+    return RegexPIIDetector(name="pii.ipv4", pattern=_IPV4_RE, replacement="[REDACTED-IP]")
 
 
 def credit_card_detector() -> RegexPIIDetector:
@@ -209,9 +198,7 @@ class PromptInjectionDetector(GuardrailRule):
     _NAME = "injection"
 
     def __init__(self) -> None:
-        self._patterns = [
-            re.compile(p, re.IGNORECASE | re.MULTILINE) for p in _INJECTION_PATTERNS
-        ]
+        self._patterns = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in _INJECTION_PATTERNS]
 
     @property
     def name(self) -> str:
@@ -235,7 +222,6 @@ class PromptInjectionDetector(GuardrailRule):
                         # rather than something that could itself be
                         # interpreted as an instruction.
                         replacement_token="[REDACTED-INJECTION]",  # noqa: S106 — redaction marker, not a credential
-
                     )
                 )
         return hits

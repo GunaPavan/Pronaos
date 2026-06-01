@@ -30,12 +30,8 @@ class StubScorer(Scorer):
 
     async def score(self, *, prompt: str, expected: str, candidate: str) -> ScoreResult:
         if candidate in self._scores:
-            return ScoreResult(
-                score=self._scores[candidate], justification="canned", raw=""
-            )
-        return ScoreResult(
-            score=0.0, justification="", judge_error="unknown candidate"
-        )
+            return ScoreResult(score=self._scores[candidate], justification="canned", raw="")
+        return ScoreResult(score=0.0, justification="", judge_error="unknown candidate")
 
 
 def _candidate_response(content: str) -> dict:
@@ -178,9 +174,7 @@ async def test_summary_round_trips_json(tmp_path) -> None:  # type: ignore[no-un
     summary = await runner.run(
         GoldenSet(
             name="rt",
-            cases=[
-                EvalCase(id="only", category="factual", prompt="?", expected="...")
-            ],
+            cases=[EvalCase(id="only", category="factual", prompt="?", expected="...")],
         )
     )
     out = tmp_path / "result.json"

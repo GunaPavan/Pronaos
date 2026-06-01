@@ -70,9 +70,7 @@ async def test_successful_chat_persists_usage_record(auth_setup) -> None:  # typ
 @respx.mock
 @pytest.mark.asyncio
 async def test_multiple_calls_each_get_a_row(auth_setup) -> None:  # type: ignore[no-untyped-def]
-    respx.post(ANTHROPIC_API_URL).mock(
-        return_value=httpx.Response(200, json=_anthropic_response())
-    )
+    respx.post(ANTHROPIC_API_URL).mock(return_value=httpx.Response(200, json=_anthropic_response()))
     for _ in range(3):
         r = await auth_setup.client.post(
             "/v1/chat/completions",

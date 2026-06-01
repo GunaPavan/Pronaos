@@ -233,9 +233,7 @@ async def test_dissimilar_query_misses(vectors) -> None:  # type: ignore[no-unty
         response=_response("greetings"),
     )
 
-    lookup = await cache.get(
-        tenant_id="t1", model="m", key_payload=_payload("what is the weather")
-    )
+    lookup = await cache.get(tenant_id="t1", model="m", key_payload=_payload("what is the weather"))
     assert lookup.hit is False
 
 
@@ -270,9 +268,7 @@ async def test_threshold_strictness_changes_outcome(vectors) -> None:  # type: i
     await permissive.put(
         tenant_id="t1", model="m", key_payload=_payload("a"), response=_response("A")
     )
-    permissive_lookup = await permissive.get(
-        tenant_id="t1", model="m", key_payload=_payload("b")
-    )
+    permissive_lookup = await permissive.get(tenant_id="t1", model="m", key_payload=_payload("b"))
     assert permissive_lookup.hit is True
 
 
@@ -339,7 +335,9 @@ async def test_semantic_model_isolation(vectors) -> None:  # type: ignore[no-unt
 
 
 @pytest.fixture
-async def layered_pair(vectors) -> AsyncIterator[tuple[LayeredCache, QdrantSemanticCache, RedisExactCache]]:  # type: ignore[no-untyped-def]
+async def layered_pair(
+    vectors,
+) -> AsyncIterator[tuple[LayeredCache, QdrantSemanticCache, RedisExactCache]]:  # type: ignore[no-untyped-def]
     """L1 (real fakeredis-backed exact) + L2 (real semantic against
     FakeQdrant) composed via LayeredCache. Returns the layered cache
     plus its inner layers so tests can poke at either tier directly."""
@@ -384,7 +382,9 @@ async def test_layered_l1_miss_l2_hit_returns_semantic(layered_pair) -> None:  #
     )
 
     lookup = await layered.get(
-        tenant_id="t1", model="m", key_payload=_payload("hi there")  # paraphrase
+        tenant_id="t1",
+        model="m",
+        key_payload=_payload("hi there"),  # paraphrase
     )
     assert lookup.hit is True
     assert lookup.tier == "semantic"
@@ -404,9 +404,7 @@ async def test_layered_l2_hit_promotes_into_l1(layered_pair) -> None:  # type: i
     )
 
     # First lookup with the paraphrase: L2 hit + promote.
-    first = await layered.get(
-        tenant_id="t1", model="m", key_payload=_payload("hi there")
-    )
+    first = await layered.get(tenant_id="t1", model="m", key_payload=_payload("hi there"))
     assert first.tier == "semantic"
 
     # Now an exact lookup on the SAME paraphrase should hit L1 directly.
@@ -429,15 +427,11 @@ async def test_layered_put_writes_to_both_tiers(layered_pair) -> None:  # type: 
     )
 
     # L1 read.
-    l1_lookup = await l1.get(
-        tenant_id="t1", model="m", key_payload=_payload("hello there")
-    )
+    l1_lookup = await l1.get(tenant_id="t1", model="m", key_payload=_payload("hello there"))
     assert l1_lookup.hit is True
 
     # L2 read via paraphrase — confirms the put reached L2.
-    l2_lookup = await l2.get(
-        tenant_id="t1", model="m", key_payload=_payload("hi there")
-    )
+    l2_lookup = await l2.get(tenant_id="t1", model="m", key_payload=_payload("hi there"))
     assert l2_lookup.hit is True
 
 
@@ -447,9 +441,7 @@ async def test_layered_both_miss_returns_miss(layered_pair) -> None:  # type: ig
     against a bug where the composer returns ``hit=True`` with a None
     response, which would crash the caller."""
     layered, _l2, _l1 = layered_pair
-    lookup = await layered.get(
-        tenant_id="t1", model="m", key_payload=_payload("anything")
-    )
+    lookup = await layered.get(tenant_id="t1", model="m", key_payload=_payload("anything"))
     assert lookup.hit is False
     assert lookup.response is None
 
@@ -479,9 +471,7 @@ async def test_layered_fails_open_when_l2_raises() -> None:
         key_payload=_payload("ping"),
         response=_response("L1 only"),
     )
-    lookup = await layered.get(
-        tenant_id="t1", model="m", key_payload=_payload("ping")
-    )
+    lookup = await layered.get(tenant_id="t1", model="m", key_payload=_payload("ping"))
     assert lookup.hit is True
     assert lookup.tier == "exact"
 
@@ -527,9 +517,7 @@ async def test_semantic_returns_miss_for_empty_query() -> None:
         embedder=StubEmbedder({}),
     )
     await cache.ensure_ready()
-    lookup = await cache.get(
-        tenant_id="t1", model="m", key_payload={"messages": []}
-    )
+    lookup = await cache.get(tenant_id="t1", model="m", key_payload={"messages": []})
     assert lookup.hit is False
 
 
@@ -547,8 +535,6 @@ async def test_null_l2_makes_layered_behave_like_l1_only() -> None:
         key_payload=_payload("hello"),
         response=_response("only L1"),
     )
-    lookup = await layered.get(
-        tenant_id="t1", model="m", key_payload=_payload("hello")
-    )
+    lookup = await layered.get(tenant_id="t1", model="m", key_payload=_payload("hello"))
     assert lookup.hit is True
     assert lookup.tier == "exact"

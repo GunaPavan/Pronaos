@@ -64,7 +64,10 @@ async def test_put_then_get_round_trip(redis) -> None:  # type: ignore[no-untype
     This is the happy path that powers every other cache benefit."""
     cache = RedisExactCache(redis)
     await cache.put(
-        tenant_id="t1", model="anthropic/claude-opus-4-7", key_payload=_payload(), response=_response()
+        tenant_id="t1",
+        model="anthropic/claude-opus-4-7",
+        key_payload=_payload(),
+        response=_response(),
     )
     result = await cache.get(
         tenant_id="t1", model="anthropic/claude-opus-4-7", key_payload=_payload()
@@ -129,12 +132,18 @@ async def test_key_order_does_not_affect_hash(redis) -> None:  # type: ignore[no
     submitted from different clients (or after a Python interpreter
     restart with different hash seed) would cache-miss against itself."""
     cache = RedisExactCache(redis)
-    put_payload = {"temperature": 0.0, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 64}
-    get_payload = {"max_tokens": 64, "messages": [{"role": "user", "content": "hi"}], "temperature": 0.0}
+    put_payload = {
+        "temperature": 0.0,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 64,
+    }
+    get_payload = {
+        "max_tokens": 64,
+        "messages": [{"role": "user", "content": "hi"}],
+        "temperature": 0.0,
+    }
 
-    await cache.put(
-        tenant_id="t1", model="m", key_payload=put_payload, response=_response()
-    )
+    await cache.put(tenant_id="t1", model="m", key_payload=put_payload, response=_response())
     result = await cache.get(tenant_id="t1", model="m", key_payload=get_payload)
     assert result.hit is True
 
@@ -208,9 +217,7 @@ async def test_put_fails_open_on_redis_error() -> None:
     broken.set.side_effect = ConnectionError("redis is down")
     cache = RedisExactCache(broken)
     # Must not raise:
-    await cache.put(
-        tenant_id="t1", model="m", key_payload=_payload(), response=_response()
-    )
+    await cache.put(tenant_id="t1", model="m", key_payload=_payload(), response=_response())
 
 
 # --------------------------------------------------------------------------- #

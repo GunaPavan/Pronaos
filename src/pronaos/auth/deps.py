@@ -31,7 +31,8 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pronaos.auth.api_keys import Principal, verify_key
+from pronaos.auth.api_keys import Principal, resolve_oidc_subject, verify_key
+from pronaos.auth.oidc import OidcAuthError, OidcVerifier
 from pronaos.core.quota import QuotaTracker
 from pronaos.core.ratelimit import RateLimiter
 from pronaos.core.webhooks import (
@@ -42,6 +43,13 @@ from pronaos.core.webhooks import (
 from pronaos.observability.metrics import record_quota_denial
 
 _bearer = HTTPBearer(auto_error=False)
+
+
+def _looks_like_jwt(token: str) -> bool:
+    """Cheap shape check. JWTs are three dot-separated base64 segments;
+    Pronaos API keys are underscore-separated. Never collide, so we can
+    dispatch on the structural difference without trying to decode."""
+    return token.count(".") == 2 and " " not in token and token[0:1] != "_"
 
 
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
@@ -63,15 +71,40 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 async def require_principal(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> Principal:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorised()
 
-    principal = await verify_key(session, credentials.credentials)
-    if principal is None:
-        raise _unauthorised()
+    token = credentials.credentials
+
+    # Phase 26: dual-auth dispatch. JWTs (three dot-separated segments)
+    # go to the OIDC path; everything else is an API key. The two formats
+    # never collide on the wire (API keys are underscore-separated).
+    if _looks_like_jwt(token):
+        verifier: OidcVerifier | None = getattr(request.app.state, "oidc_verifier", None)
+        if verifier is None:
+            # JWT-shaped token but OIDC isn't configured on this
+            # gateway. Surface 401 with a non-leaking message — we
+            # don't want to expose to the caller whether OIDC is on
+            # or off as a probe vector.
+            raise _unauthorised()
+        try:
+            claims = verifier.verify(token)
+        except OidcAuthError:
+            raise _unauthorised() from None
+        principal = await resolve_oidc_subject(session, claims.subject)
+        if principal is None:
+            # JWT was valid but no tenant claims this subject. From
+            # the caller's perspective this is also 401 — the gateway
+            # doesn't reveal which subjects are configured.
+            raise _unauthorised()
+    else:
+        principal = await verify_key(session, token)
+        if principal is None:
+            raise _unauthorised()
 
     # Bind for the rest of the request. This propagates to every structlog
     # call regardless of where in the code it happens.
@@ -79,6 +112,7 @@ async def require_principal(
         tenant_id=principal.tenant_id,
         team_id=principal.team_id,
         key_id=principal.key_id,
+        auth_method=principal.auth_method,
     )
     return principal
 
@@ -160,8 +194,7 @@ def enforce_quotas(
                     request,
                     principal,
                     reason="rate_limit",
-                    retry_after_seconds=int(rl_result.retry_after_seconds or 0)
-                    or None,
+                    retry_after_seconds=int(rl_result.retry_after_seconds or 0) or None,
                 )
                 raise _rate_limited(
                     retry_after_seconds=rl_result.retry_after_seconds,
@@ -177,8 +210,7 @@ def enforce_quotas(
                 request,
                 principal,
                 reason=reason,
-                retry_after_seconds=int(budget_result.retry_after_seconds or 0)
-                or None,
+                retry_after_seconds=int(budget_result.retry_after_seconds or 0) or None,
             )
             raise _rate_limited(
                 retry_after_seconds=budget_result.retry_after_seconds,
@@ -204,9 +236,7 @@ def _publish_quota_denial(
     receiver learns about the denial in near-real-time, not on the
     next dashboard scrape.
     """
-    dispatcher: WebhookDispatcher | None = getattr(
-        request.app.state, "webhook_dispatcher", None
-    )
+    dispatcher: WebhookDispatcher | None = getattr(request.app.state, "webhook_dispatcher", None)
     if dispatcher is None:
         return
     dispatcher.publish(

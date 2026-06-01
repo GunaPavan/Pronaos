@@ -21,13 +21,14 @@ On the `Pronaos / Cost` Grafana dashboard, drill down by:
 
 Pick the least-disruptive stop:
 
-| Scope                | Action                                                               |
-|----------------------|----------------------------------------------------------------------|
-| Single key           | `pronaos-cli key revoke <key-id>`                                      |
-| Single team          | Lower team quota to near-current; soft 429 routes new traffic back   |
-| Single tenant        | Enable `cost_circuit_breaker` on the tenant                          |
-| Runaway model        | Remove from allowed model list for the affected tenant               |
-| Global anomaly       | Flip the `pronaos.emergency_spend_cap` flag                            |
+| Scope                | Action                                                                      |
+|----------------------|-----------------------------------------------------------------------------|
+| Single key           | `pronaos-cli key revoke <key-id>`                                            |
+| Single team          | `pronaos-cli team set-budget <team-id> --cost-hcents <near-current>` — preflight + post-flight gates kick in immediately (Phase 20 saves the upstream call on requests that would deny anyway) |
+| Cost-tier rotation   | `pronaos-cli team set-routing-strategy <team-id> --strategy cheapest` + `set-allowed-models 'groq/*'` — auto-routes `model="auto"` traffic to the cheapest eligible model without revoking keys (Phase 21) |
+| Runaway model        | `pronaos-cli team set-allowed-models <team-id> --models <safer-list>` — removes the offending model from the team's allowlist |
+| Single tenant        | Set `routing_strategy=cheapest` + lower budgets on every team in the tenant |
+| Global anomaly       | Flip the `pronaos.emergency_spend_cap` flag                                  |
 
 ## 4. Communicate
 

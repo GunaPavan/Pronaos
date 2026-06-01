@@ -9,19 +9,30 @@ The user-visible signal is the HTTP `429` response with body shape::
 
     {
       "detail": {
-        "type": "rate_limit" | "monthly_budget_exhausted",
+        "type": "rate_limit" | "monthly_token_budget_exhausted" |
+                "monthly_cost_budget_exhausted",
         "message": "request denied by quota policy",
+        "estimated_tokens": <int>,        # preflight only
         "retry_after_seconds": <int>
       }
     }
 
-In Grafana, the `Pronaos / Quotas` panel shows two distinct rates:
+If the response carries an `X-Pronaos-Preflight-Estimate: <int>`
+header, the denial fired BEFORE any upstream call — the gateway's
+heuristic estimator decided the team couldn't afford this request.
+The `quota.exhausted` webhook also fires (Phase 19) so a tenant
+with a configured receiver gets a Slack / PagerDuty ping at the
+moment of the denial.
 
-- `pronaos_rate_limit_denials_total{key_id, reason="rate_limit"}` — burst
-  trippers; usually a misbehaving client.
-- `pronaos_rate_limit_denials_total{reason="monthly_budget_exhausted"}` —
-  team has hit its monthly token cap; either a real consumption ramp or
-  a runaway prompt.
+In Grafana, the `Pronaos / Quotas` panel shows distinct rates:
+
+- `pronaos_quota_denials_total{reason="rate_limit"}` — per-key
+  burst trippers; usually a misbehaving client.
+- `pronaos_quota_denials_total{reason="monthly_token_budget_exhausted"}`
+  — team hit its monthly token cap (post-flight).
+- `pronaos_preflight_denials_total{reason}` — Phase 20 estimator
+  denied the request before dispatching upstream. Sum across both
+  for the operator-visible total.
 
 ## 2. Triage (2 minutes)
 

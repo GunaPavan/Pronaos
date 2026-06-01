@@ -441,13 +441,27 @@ async def test_limit_truncates_items_but_totals_cover_full_set(
 @pytest.mark.asyncio
 async def test_offset_advances_through_pages(admin_setup: AdminSetup) -> None:
     headers = {"Authorization": f"Bearer {admin_setup.admin_key_a}"}
-    page1 = (await admin_setup.client.get("/v1/admin/usage", params={"limit": 2, "offset": 0}, headers=headers)).json()
-    page2 = (await admin_setup.client.get("/v1/admin/usage", params={"limit": 2, "offset": 2}, headers=headers)).json()
-    page3 = (await admin_setup.client.get("/v1/admin/usage", params={"limit": 2, "offset": 4}, headers=headers)).json()
+    page1 = (
+        await admin_setup.client.get(
+            "/v1/admin/usage", params={"limit": 2, "offset": 0}, headers=headers
+        )
+    ).json()
+    page2 = (
+        await admin_setup.client.get(
+            "/v1/admin/usage", params={"limit": 2, "offset": 2}, headers=headers
+        )
+    ).json()
+    page3 = (
+        await admin_setup.client.get(
+            "/v1/admin/usage", params={"limit": 2, "offset": 4}, headers=headers
+        )
+    ).json()
 
-    ids_seen = {item["id"] for item in page1["items"]} | {
-        item["id"] for item in page2["items"]
-    } | {item["id"] for item in page3["items"]}
+    ids_seen = (
+        {item["id"] for item in page1["items"]}
+        | {item["id"] for item in page2["items"]}
+        | {item["id"] for item in page3["items"]}
+    )
     assert len(ids_seen) == 5  # all rows, no duplicates across pages
     assert len(page3["items"]) == 1  # last page has the leftover row
 

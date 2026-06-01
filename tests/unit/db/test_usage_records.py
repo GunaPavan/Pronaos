@@ -99,14 +99,10 @@ async def test_filter_by_team_and_time_range(tmp_path: Path) -> None:
     async with sm() as session:
         session.add_all(
             [
-                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g",
-                            model="m", ts=t0),
-                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g",
-                            model="m", ts=t1),
-                UsageRecord(tenant_id="t", team_id="B", key_id="k", provider="g",
-                            model="m", ts=t1),
-                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g",
-                            model="m", ts=t2),
+                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g", model="m", ts=t0),
+                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g", model="m", ts=t1),
+                UsageRecord(tenant_id="t", team_id="B", key_id="k", provider="g", model="m", ts=t1),
+                UsageRecord(tenant_id="t", team_id="A", key_id="k", provider="g", model="m", ts=t2),
             ]
         )
         await session.commit()
@@ -131,9 +127,7 @@ async def test_filter_by_team_and_time_range(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_migration_0003_round_trip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_migration_0003_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply 0001+0002+0003 then downgrade 0003 → 0002.
 
     Catches: misnamed columns, bad server_defaults, downgrade bugs, index leaks.

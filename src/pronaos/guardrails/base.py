@@ -28,6 +28,14 @@ class GuardrailAction(StrEnum):
     BLOCK = "block"
     REDACT = "redact"
     LOG_ONLY = "log_only"
+    # Phase 38: reversible tokenization. Matched PII is replaced with
+    # a deterministic ``[TYPE_HASH]`` token; the chat handler holds
+    # the mapping in Redis and reverses it in the response before
+    # returning to the client. Unlike REDACT, this preserves the
+    # information flow end-to-end while still hiding the original
+    # from the upstream LLM. Requires ``team.pii_tokenization_enabled``;
+    # falls back to REDACT when the team hasn't opted in.
+    TOKENIZE = "tokenize"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,11 +82,16 @@ class GuardrailVerdict:
     """Engine output after applying policy to one text input.
 
     ``blocked`` short-circuits the chat handler (caller returns 422).
-    ``text`` is the (possibly redacted) content to use downstream —
-    the chat handler must use *this* string, never the original, when
-    computing cache keys or forwarding to the provider.
+    ``text`` is the (possibly redacted or tokenized) content to use
+    downstream — the chat handler must use *this* string, never the
+    original, when computing cache keys or forwarding to the provider.
     ``hits`` carries every fired rule for metrics/logging regardless
     of action.
+    ``tokenizations`` (Phase 38) carries the ``(token, original)`` pairs
+    produced by ``TOKENIZE`` actions. The chat handler writes these to
+    Redis with the team's TTL so the egress detokenizer can reverse
+    them. Empty list when no TOKENIZE actions fired — keeps callers
+    that don't use tokenization on a no-op path.
     """
 
     blocked: bool
@@ -87,6 +100,9 @@ class GuardrailVerdict:
     # The first rule whose policy was BLOCK. Carried so the chat
     # handler can include it in the 422 error body for the client.
     block_reason: str | None = None
+    # Phase 38: ``(token, original_value)`` tuples for the chat handler
+    # to persist in Redis. Tokens already substituted into ``text``.
+    tokenizations: list[tuple[str, str]] = field(default_factory=list)
 
 
 class GuardrailEngine(Protocol):
@@ -108,8 +124,16 @@ class GuardrailEngine(Protocol):
         *,
         policy_override: Mapping[str, GuardrailAction] | None = None,
         disabled_rules: set[str] | None = None,
+        tenant_id: str | None = None,
+        tokenization_enabled: bool = False,
     ) -> GuardrailVerdict:
-        """Run ingress rules against a user message."""
+        """Run ingress rules against a user message.
+
+        ``tenant_id`` + ``tokenization_enabled`` (Phase 38): when both
+        are set, TOKENIZE actions in policy produce reversible tokens
+        instead of one-way redactions. When either is missing, TOKENIZE
+        degrades to REDACT so existing teams' behaviour is preserved.
+        """
         ...
 
     def scan_egress(
@@ -118,6 +142,8 @@ class GuardrailEngine(Protocol):
         *,
         policy_override: Mapping[str, GuardrailAction] | None = None,
         disabled_rules: set[str] | None = None,
+        tenant_id: str | None = None,
+        tokenization_enabled: bool = False,
     ) -> GuardrailVerdict:
         """Run egress rules against an assistant response. Egress
         defaults to REDACT-only behaviour even if ingress would BLOCK —
@@ -138,6 +164,8 @@ class NullGuardrailEngine(GuardrailEngine):
         *,
         policy_override: Mapping[str, GuardrailAction] | None = None,
         disabled_rules: set[str] | None = None,
+        tenant_id: str | None = None,
+        tokenization_enabled: bool = False,
     ) -> GuardrailVerdict:
         return GuardrailVerdict(blocked=False, text=text)
 
@@ -147,6 +175,8 @@ class NullGuardrailEngine(GuardrailEngine):
         *,
         policy_override: Mapping[str, GuardrailAction] | None = None,
         disabled_rules: set[str] | None = None,
+        tenant_id: str | None = None,
+        tokenization_enabled: bool = False,
     ) -> GuardrailVerdict:
         return GuardrailVerdict(blocked=False, text=text)
 

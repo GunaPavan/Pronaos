@@ -69,9 +69,7 @@ class VerifyResult:
 class AuditVerifier:
     """Walks a tenant's audit chain and reports tamper points."""
 
-    async def verify(
-        self, session: AsyncSession, tenant_id: str
-    ) -> VerifyResult:
+    async def verify(self, session: AsyncSession, tenant_id: str) -> VerifyResult:
         """Walk the entire chain for ``tenant_id`` and produce a verdict."""
         result = VerifyResult(tenant_id=tenant_id, total_records=0, verified_records=0)
 

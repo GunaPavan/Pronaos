@@ -6,6 +6,8 @@ offline, deterministically, and in single-digit milliseconds.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -253,6 +255,160 @@ class TestChatCompletion:
 # --------------------------------------------------------------------------- #
 # Error handling                                                              #
 # --------------------------------------------------------------------------- #
+
+
+class TestExtendedThinking:
+    """Phase 56: Anthropic extended-thinking surface.
+
+    Anthropic emits thinking-mode CoT as a separate ``type: "thinking"``
+    content block before any ``text`` block. The thinking tokens are
+    ALREADY counted in ``usage.output_tokens`` — Pronaos surfaces the
+    block text on ``reasoning_content`` and estimates the token count
+    (~4 chars/token) on ``reasoning_tokens``. Non-thinking responses
+    leave both fields at 0/None (no behavioural change).
+    """
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_thinking_block_surfaces_on_non_streaming(
+        self, provider: AnthropicProvider
+    ) -> None:
+        body = {
+            "id": "msg_thinking_01",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": (
+                        "Let me think about this carefully. The user is asking "
+                        "for a sum. 2+2 is a basic arithmetic question."
+                    ),
+                    "signature": "sig_opaque",
+                },
+                {"type": "text", "text": "The answer is 4."},
+            ],
+            "model": "claude-opus-4-7",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 12, "output_tokens": 50},
+        }
+        respx.post(ANTHROPIC_API_URL).mock(
+            return_value=httpx.Response(200, json=body)
+        )
+        req = ChatCompletionRequest(
+            model="anthropic/claude-opus-4-7",
+            messages=[{"role": "user", "content": "what's 2+2?"}],
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        # content_delta carries the text block only (NOT thinking).
+        assert chunk.content_delta == "The answer is 4."
+        # reasoning_content carries the thinking text.
+        assert chunk.reasoning_content is not None
+        assert "2+2 is a basic arithmetic question" in chunk.reasoning_content
+        # reasoning_tokens estimated from char-length (ceil-divide by 4).
+        # The thinking text is 100 chars → ceil(100/4) = 25 tokens.
+        assert chunk.reasoning_tokens == 25
+        # completion_tokens unchanged — Anthropic already includes
+        # thinking in output_tokens.
+        assert chunk.completion_tokens == 50
+        await provider.aclose()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_thinking_response_has_no_reasoning(
+        self, provider: AnthropicProvider
+    ) -> None:
+        """Regression: a plain text-only response (the common case)
+        must not invent reasoning_tokens or reasoning_content."""
+        respx.post(ANTHROPIC_API_URL).mock(
+            return_value=httpx.Response(200, json=_mock_body("just text"))
+        )
+        req = ChatCompletionRequest(
+            model="anthropic/claude-opus-4-7",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        chunk = chunks[0]
+        assert chunk.reasoning_tokens == 0
+        assert chunk.reasoning_content is None
+        await provider.aclose()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_streaming_thinking_block_assembled_on_terminal(
+        self, provider: AnthropicProvider
+    ) -> None:
+        """Anthropic streams thinking via ``content_block_start`` (type=
+        thinking) + a series of ``content_block_delta`` events with
+        ``delta.type=thinking_delta``. The adapter accumulates the
+        fragments and emits them on the terminal chunk. Text deltas
+        flow normally as content_delta — thinking is body-only."""
+        events = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_stream_thinking",
+                    "usage": {"input_tokens": 8, "output_tokens": 0},
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "First, "},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "I consider X."},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "Final answer."},
+            },
+            {"type": "content_block_stop", "index": 1},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 45},
+            },
+            {"type": "message_stop"},
+        ]
+        sse_body = "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events)
+        respx.post(ANTHROPIC_API_URL).mock(
+            return_value=httpx.Response(
+                200, text=sse_body, headers={"content-type": "text/event-stream"}
+            )
+        )
+        req = ChatCompletionRequest(
+            model="anthropic/claude-opus-4-7",
+            messages=[{"role": "user", "content": "hi"}],
+            stream=True,
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        # Text-delta chunks flow normally; thinking is body-only.
+        text_chunks = [c.content_delta for c in chunks if c.content_delta]
+        assert text_chunks == ["Final answer."]
+        terminal = chunks[-1]
+        assert terminal.finish_reason == "stop"
+        # Thinking content assembled from the two thinking_delta events.
+        assert terminal.reasoning_content == "First, I consider X."
+        # Char-length / 4 ceil: 20 chars → 5 tokens.
+        assert terminal.reasoning_tokens == 5
+        await provider.aclose()
 
 
 class TestErrors:

@@ -135,9 +135,9 @@ async def test_model_not_in_allowlist_returns_403(auth_setup) -> None:  # type: 
     # Configure the team's allowlist to disallow anthropic/*.
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = ["groq/*"]
         await session.commit()
 
@@ -177,9 +177,9 @@ async def test_model_in_allowlist_passes_through(auth_setup) -> None:  # type: i
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = ["anthropic/*"]
         await session.commit()
 
@@ -236,9 +236,9 @@ async def test_empty_allowlist_denies_everything(auth_setup) -> None:  # type: i
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = []
         await session.commit()
 
@@ -279,18 +279,16 @@ async def test_preflight_denies_when_estimate_exceeds_budget(
     # Set a tight 50-token budget on the seeded team.
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.monthly_token_budget = 50
         team.current_period_tokens = 0
         await session.commit()
 
     # Mock so any upstream call would be visible if it leaked through.
     anthropic_route = respx.post(ANTHROPIC_API_URL).mock(
-        return_value=httpx.Response(
-            200, json=_anthropic_response("should not be reached")
-        )
+        return_value=httpx.Response(200, json=_anthropic_response("should not be reached"))
     )
 
     # 500-token max_tokens alone blows the 50-token budget — no
@@ -330,9 +328,9 @@ async def test_preflight_allows_when_estimate_fits_budget(
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.monthly_token_budget = 100_000
         team.current_period_tokens = 0
         await session.commit()
@@ -420,9 +418,9 @@ async def test_auto_routing_picks_cheapest_groq_model(auth_setup) -> None:  # ty
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = ["groq/*"]
         team.routing_strategy = "cheapest"
         await session.commit()
@@ -460,9 +458,9 @@ async def test_auto_routing_with_no_eligible_model_returns_422(auth_setup) -> No
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = []  # explicit deny-all
         await session.commit()
 
@@ -500,16 +498,14 @@ async def test_auto_routing_defaults_to_cheapest_when_strategy_unset(  # type: i
 
     sm = auth_setup.sm
     async with sm() as session:
-        team = (await session.execute(
-            select(Team).where(Team.id == auth_setup.team_id)
-        )).scalar_one()
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
         team.allowed_models = ["groq/*"]
         # Deliberately leave routing_strategy = NULL.
         await session.commit()
 
-    respx.post(_GROQ_CHAT_URL).mock(
-        return_value=httpx.Response(200, json=_groq_response("ok"))
-    )
+    respx.post(_GROQ_CHAT_URL).mock(return_value=httpx.Response(200, json=_groq_response("ok")))
 
     resp = await auth_setup.client.post(
         "/v1/chat/completions",
@@ -525,3 +521,158 @@ async def test_auto_routing_defaults_to_cheapest_when_strategy_unset(  # type: i
     assert resp.headers["X-Pronaos-Routing-Strategy"] == "cheapest"
     # Cheapest groq model is the 8b-instant.
     assert resp.headers["X-Pronaos-Routed-Model"] == "groq/llama-3.1-8b-instant"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 24: quality-aware routing                                             #
+# --------------------------------------------------------------------------- #
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_quality_aware_routing_picks_expensive_when_cheap_fails_threshold(  # type: ignore[no-untyped-def]
+    auth_setup,
+) -> None:
+    """Headline behaviour: team has stored eval scores. 8B-instant
+    scored 0.4 (below 0.7 threshold) → filtered out. 70B-versatile
+    scored 0.9 → clears the bar → wins on cost-among-eligible.
+
+    The cheap-but-failing 8B-instant is the model plain ``cheapest``
+    would pick; quality-aware routing skips it because the team's
+    eval data says it under-performs."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
+        team.allowed_models = [
+            "groq/llama-3.1-8b-instant",
+            "groq/llama-3.3-70b-versatile",
+        ]
+        team.routing_strategy = "quality-aware-cheapest"
+        team.quality_threshold = 0.7
+        team.quality_scores = {
+            "groq/llama-3.1-8b-instant": {"score": 0.4, "n_samples": 8},
+            "groq/llama-3.3-70b-versatile": {"score": 0.9, "n_samples": 8},
+        }
+        await session.commit()
+
+    # Mock both possible upstreams. Only the 70B URL should be hit.
+    groq_70b = respx.post(_GROQ_CHAT_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response("70b reply"))
+    )
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 20,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["X-Pronaos-Routed-Model"] == "groq/llama-3.3-70b-versatile"
+    assert resp.headers["X-Pronaos-Routing-Strategy"] == "quality-aware-cheapest"
+    # The stored score shows up in the response header so clients
+    # can audit the quality-aware decision.
+    assert resp.headers["X-Pronaos-Quality-Score"] == "0.900"
+    assert groq_70b.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_quality_aware_routing_degrades_to_cheapest_with_no_scores(  # type: ignore[no-untyped-def]
+    auth_setup,
+) -> None:
+    """A team that switched to quality-aware-cheapest before running
+    any eval must not 500. The scorer degrades to plain ``cheapest``
+    over the capability-eligible pool."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
+        team.allowed_models = [
+            "groq/llama-3.1-8b-instant",
+            "groq/llama-3.3-70b-versatile",
+        ]
+        team.routing_strategy = "quality-aware-cheapest"
+        team.quality_scores = None  # No eval data on file.
+        await session.commit()
+
+    respx.post(_GROQ_CHAT_URL).mock(return_value=httpx.Response(200, json=_groq_response("ok")))
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 20,
+        },
+    )
+
+    assert resp.status_code == 200
+    # Same answer plain cheapest would give.
+    assert resp.headers["X-Pronaos-Routed-Model"] == "groq/llama-3.1-8b-instant"
+    # No score on record for the picked model → no header.
+    assert "X-Pronaos-Quality-Score" not in resp.headers
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_quality_aware_routing_422_when_nothing_clears_bar(  # type: ignore[no-untyped-def]
+    auth_setup,
+) -> None:
+    """If every evaluated model is below the bar, surface 422 with the
+    ``no_eligible_model`` shape. Operator should either lower the
+    threshold or widen the allowlist."""
+    from sqlalchemy import select
+
+    from pronaos.db.models import Team
+
+    sm = auth_setup.sm
+    async with sm() as session:
+        team = (
+            await session.execute(select(Team).where(Team.id == auth_setup.team_id))
+        ).scalar_one()
+        team.allowed_models = [
+            "groq/llama-3.1-8b-instant",
+            "groq/llama-3.3-70b-versatile",
+        ]
+        team.routing_strategy = "quality-aware-cheapest"
+        team.quality_threshold = 0.99  # Impossibly high.
+        team.quality_scores = {
+            "groq/llama-3.1-8b-instant": {"score": 0.4, "n_samples": 8},
+            "groq/llama-3.3-70b-versatile": {"score": 0.9, "n_samples": 8},
+        }
+        await session.commit()
+
+    groq_route = respx.post(_GROQ_CHAT_URL).mock(
+        return_value=httpx.Response(200, json=_groq_response("should not reach"))
+    )
+
+    resp = await auth_setup.client.post(
+        "/v1/chat/completions",
+        headers=_auth(auth_setup.api_key),
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["type"] == "no_eligible_model"
+    # No upstream call made — the quality gate short-circuited.
+    assert groq_route.call_count == 0

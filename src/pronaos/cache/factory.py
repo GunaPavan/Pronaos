@@ -64,9 +64,7 @@ async def make_cache(settings: Settings) -> Cache:
         from pronaos.cache.semantic import QdrantSemanticCache
 
         embedder = SentenceTransformerEmbedder()
-        qdrant = AsyncQdrantClient(
-            url=settings.qdrant_url, api_key=settings.qdrant_api_key
-        )
+        qdrant = AsyncQdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
         # ``AsyncQdrantClient`` has a richer signature than our
         # ``QdrantClientLike`` Protocol declares (kwargs we don't use),
         # so mypy structurally narrows past it. ``cast`` here is honest

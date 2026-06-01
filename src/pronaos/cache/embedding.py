@@ -95,9 +95,7 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
         # Qdrant computes faster than full cosine — and the math is
         # identical. Free speedup, zero behaviour change.
         def _encode() -> list[list[float]]:
-            arr = self._model.encode(
-                texts, normalize_embeddings=True, show_progress_bar=False
-            )
+            arr = self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
             # numpy ndarray.tolist() is typed as Any in the numpy stubs;
             # cast back to the concrete shape we contractually return.
             from typing import cast

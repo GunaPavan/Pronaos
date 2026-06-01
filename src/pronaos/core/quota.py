@@ -75,6 +75,19 @@ class CompletedCall:
     cost_hcents: int
     request_id: str | None = None
     status: str = "success"
+    # Phase 29: arm letter ("a" or "b") when an A/B test routed this
+    # call; None on the common case (no active test or model didn't
+    # match either arm).
+    ab_arm: str | None = None
+    # Phase 37: tool names the LLM emitted in this call's response.
+    # ``None`` and ``[]`` both mean "no tool_calls"; the chat handler
+    # passes the list it extracted from the response chunk's
+    # ``tool_calls`` field. ``record_call`` writes a comma-joined
+    # string into ``usage_records.tool_names`` (NULL when empty) and
+    # increments ``teams.tool_budgets[name].current_calls`` once per
+    # name. Same name twice (e.g. the LLM called ``web_search`` two
+    # times in one turn) counts as two budget hits.
+    tool_names: tuple[str, ...] | None = None
 
     @property
     def total_tokens(self) -> int:
@@ -318,9 +331,7 @@ class QuotaTracker:
         projected = tokens_used + estimated_tokens
         if projected > token_budget:
             retry_after = max(0.0, (resets_at - now).total_seconds())
-            return QuotaResult.deny_token_exhausted(
-                retry_after_seconds=retry_after
-            )
+            return QuotaResult.deny_token_exhausted(retry_after_seconds=retry_after)
 
         return QuotaResult.allow_bounded(remaining=token_budget - projected)
 
@@ -365,18 +376,29 @@ class QuotaTracker:
     ) -> None:
         """Persist a per-call audit row AND bump the team budget counter.
 
-        Two effects in one method because they always happen together on a
+        Three effects in one method because they always happen together on a
         successful response:
 
         1. Insert one row into ``usage_records`` capturing provider, model,
-           tokens, cost, status — the data that drives FinOps dashboards
-           and per-tenant chargeback.
-        2. Atomically increment the team's running token counter.
+           tokens, cost, status, and (Phase 37) the comma-joined list of
+           tool names the LLM emitted in this call's response.
+        2. Atomically increment the team's running token + cost counters.
+        3. (Phase 37) For each tool name in ``call.tool_names``, bump
+           ``teams.tool_budgets[name].current_calls``. Done with a
+           SELECT-MODIFY-UPDATE because JSON-path UPDATE syntax differs
+           across Postgres and SQLite — the read-modify-write race is
+           bounded (same race as token-budget headroom) and acceptable
+           for this counter. Same tool name twice in one response counts
+           as two budget hits (each is a separate LLM invocation for
+           billing/budget purposes).
 
         Both are fail-open: a recording failure is logged but does not
         propagate — the chat response has already been sent to the client.
         """
         try:
+            tool_names_str: str | None = None
+            if call.tool_names:
+                tool_names_str = ",".join(call.tool_names)
             session.add(
                 UsageRecord(
                     tenant_id=call.tenant_id,
@@ -389,26 +411,91 @@ class QuotaTracker:
                     cost_hcents=call.cost_hcents,
                     request_id=call.request_id,
                     status=call.status,
+                    ab_arm=call.ab_arm,
+                    tool_names=tool_names_str,
                 )
             )
             # Build the increment payload once. Skip the UPDATE entirely if
             # both deltas are zero — saves a no-op SQL roundtrip per call.
             updates: dict[str, Any] = {}
             if call.total_tokens > 0:
-                updates["current_period_tokens"] = (
-                    Team.current_period_tokens + call.total_tokens
-                )
+                updates["current_period_tokens"] = Team.current_period_tokens + call.total_tokens
             if call.cost_hcents > 0:
                 updates["current_period_cost_hcents"] = (
                     Team.current_period_cost_hcents + call.cost_hcents
                 )
             if updates:
-                await session.execute(
-                    update(Team).where(Team.id == call.team_id).values(**updates)
+                await session.execute(update(Team).where(Team.id == call.team_id).values(**updates))
+
+            # Phase 37: per-tool budget increments. Only runs when the
+            # response carried tool_calls AND the team has a budgets
+            # dict (the common case for non-tool teams is a no-op).
+            if call.tool_names:
+                await self._increment_tool_budgets(
+                    session, call.team_id, tool_names=call.tool_names
                 )
         except Exception as e:
             log.warning(
                 "quota.record_call_failed",
                 team_id=call.team_id,
                 error=str(e),
+            )
+
+    @staticmethod
+    async def _increment_tool_budgets(
+        session: AsyncSession,
+        team_id: str,
+        *,
+        tool_names: tuple[str, ...],
+    ) -> None:
+        """SELECT-MODIFY-UPDATE the team's tool_budgets JSON column.
+
+        SQLAlchemy ORM doesn't detect mutations inside a JSON dict (the
+        column-level ``MutableDict`` helper exists but isn't wired in
+        this codebase), so we issue an explicit UPDATE with the new
+        dict to guarantee the write hits the row. The SELECT happens
+        first so we can leave entries unrelated to this call's names
+        untouched — strip-by-removal also relies on entries the
+        operator never wrote staying absent.
+
+        Race condition: two concurrent calls reading the same row can
+        each increment from the same baseline, undercounting by up to
+        ``concurrent_requests - 1``. Same race as the token/cost
+        counters above; acceptable trade-off for this counter (over a
+        month's worth of calls the drift is measured in single-digit
+        counts and never causes an over-allowance — the strip-on-cap
+        gate clamps the upper bound).
+        """
+        stmt = select(Team.tool_budgets).where(Team.id == team_id)
+        row = (await session.execute(stmt)).one_or_none()
+        if row is None:
+            return
+        (budgets_raw,) = row
+        if not isinstance(budgets_raw, dict):
+            # NULL or malformed — team has no per-tool caps configured.
+            # Skipping the write preserves "absent name = uncapped" semantics.
+            return
+        # Shallow-copy so we don't mutate the SQLAlchemy attribute in-place
+        # and confuse the change tracker.
+        new_budgets: dict[str, dict[str, int]] = {}
+        for k, v in budgets_raw.items():
+            if isinstance(v, dict):
+                new_budgets[k] = dict(v)
+        dirty = False
+        for name in tool_names:
+            entry = new_budgets.get(name)
+            if entry is None:
+                # Tool has no budget configured — nothing to increment.
+                # We deliberately don't auto-create entries here: the
+                # admin operator owns the budget schema, and silently
+                # creating entries would leak unbounded tool names
+                # into the JSON column (a DoS vector via crafted LLM
+                # responses).
+                continue
+            current = entry.get("current_calls", 0)
+            entry["current_calls"] = (current if isinstance(current, int) else 0) + 1
+            dirty = True
+        if dirty:
+            await session.execute(
+                update(Team).where(Team.id == team_id).values(tool_budgets=new_budgets)
             )

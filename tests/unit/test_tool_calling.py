@@ -623,9 +623,7 @@ async def test_streaming_tool_call_emits_sse_event_via_chat_endpoint(
 
     # The terminal event must set finish_reason=tool_calls so OpenAI
     # clients route the response to their tool-call handler.
-    terminal = [
-        e for e in events if e.get("choices") and e["choices"][0].get("finish_reason")
-    ]
+    terminal = [e for e in events if e.get("choices") and e["choices"][0].get("finish_reason")]
     assert terminal, "expected a terminal event with finish_reason set"
     assert terminal[-1]["choices"][0]["finish_reason"] == "tool_calls"
 

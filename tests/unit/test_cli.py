@@ -338,9 +338,7 @@ class TestTeamChargeback:
         assert "requests: 0" in r.stdout
         assert "(no usage in window)" in r.stdout
 
-    def test_totals_aggregate_correctly(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_totals_aggregate_correctly(self, runner: CliRunner, db_path: Path) -> None:
         tenant_id, team_id = asyncio.run(_seed_tenant_team(db_path))
         asyncio.run(_seed_usage_rows(db_path, team_id, _common_usage(tenant_id)))
 
@@ -369,27 +367,19 @@ class TestTeamChargeback:
         tenant_id, team_id = asyncio.run(_seed_tenant_team(db_path))
         asyncio.run(_seed_usage_rows(db_path, team_id, _common_usage(tenant_id)))
 
-        r = runner.invoke(
-            cli_app, ["team", "chargeback", team_id, "--group-by", "provider"]
-        )
+        r = runner.invoke(cli_app, ["team", "chargeback", team_id, "--group-by", "provider"])
         assert r.exit_code == 0, r.output
         assert "by provider:" in r.stdout
         assert "anthropic" in r.stdout
         assert "groq" in r.stdout
 
-    def test_group_by_invalid_rejected(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_group_by_invalid_rejected(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
-        r = runner.invoke(
-            cli_app, ["team", "chargeback", team_id, "--group-by", "potato"]
-        )
+        r = runner.invoke(cli_app, ["team", "chargeback", team_id, "--group-by", "potato"])
         assert r.exit_code != 0
         assert "--group-by" in r.stderr
 
-    def test_since_until_filter_window(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_since_until_filter_window(self, runner: CliRunner, db_path: Path) -> None:
         """A window entirely in the past excludes the seeded "now" rows."""
         tenant_id, team_id = asyncio.run(_seed_tenant_team(db_path))
         asyncio.run(_seed_usage_rows(db_path, team_id, _common_usage(tenant_id)))
@@ -406,9 +396,7 @@ class TestTeamChargeback:
         assert r.exit_code == 0, r.output
         assert "requests: 0" in r.stdout
 
-    def test_since_after_until_rejected(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_since_after_until_rejected(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
         r = runner.invoke(
             cli_app,
@@ -425,13 +413,9 @@ class TestTeamChargeback:
         assert r.exit_code != 0
         assert "after --since" in r.stderr
 
-    def test_malformed_iso_rejected(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_malformed_iso_rejected(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
-        r = runner.invoke(
-            cli_app, ["team", "chargeback", team_id, "--since", "not-a-date"]
-        )
+        r = runner.invoke(cli_app, ["team", "chargeback", team_id, "--since", "not-a-date"])
         assert r.exit_code != 0
         assert "ISO" in r.stderr
 
@@ -442,9 +426,7 @@ class TestTeamChargeback:
 
 
 class TestKeyIssueScopes:
-    def test_issue_admin_usage_key_stores_scope(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_issue_admin_usage_key_stores_scope(self, runner: CliRunner, db_path: Path) -> None:
         """`key issue --scopes "admin:usage"` must produce a key whose DB row
         has exactly that scope. Required so operators can mint dashboard-only
         keys without giving them chat access."""
@@ -479,9 +461,7 @@ class TestKeyIssueScopes:
         key = asyncio.run(_fetch_key(db_path, key_id))
         assert key.scope_list() == ["chat:write"]
 
-    def test_set_guardrail_policy_disable_and_reset(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_set_guardrail_policy_disable_and_reset(self, runner: CliRunner, db_path: Path) -> None:
         """`team set-guardrail-policy --disable pii.ipv4` writes the policy;
         `--reset` clears it. Covers the round-trip the README experiment
         depends on."""
@@ -505,9 +485,7 @@ class TestKeyIssueScopes:
         assert team.guardrail_policy == {"disabled_rules": ["pii.ipv4"]}
 
         # Reset clears.
-        r = runner.invoke(
-            cli_app, ["team", "set-guardrail-policy", team_id, "--reset"]
-        )
+        r = runner.invoke(cli_app, ["team", "set-guardrail-policy", team_id, "--reset"])
         assert r.exit_code == 0, r.output
         team = asyncio.run(_fetch_team(db_path, team_id))
         assert team.guardrail_policy is None
@@ -561,50 +539,36 @@ class TestKeyIssueScopes:
 
 
 class TestTeamSetCostBudget:
-    def test_set_cost_budget_stores_hcents(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_set_cost_budget_stores_hcents(self, runner: CliRunner, db_path: Path) -> None:
         """--cents 5000 ($50.00) must persist as 500,000 hcents internally
         but display as $50.00 for humans."""
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
 
-        r = runner.invoke(
-            cli_app, ["team", "set-cost-budget", team_id, "--cents", "5000"]
-        )
+        r = runner.invoke(cli_app, ["team", "set-cost-budget", team_id, "--cents", "5000"])
         assert r.exit_code == 0, r.output
         assert "$50.00" in r.stdout
 
         team = asyncio.run(_fetch_team(db_path, team_id))
         assert team.monthly_cost_hcents_budget == 500_000
 
-    def test_set_unlimited_clears_cost_budget(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_set_unlimited_clears_cost_budget(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
 
         runner.invoke(cli_app, ["team", "set-cost-budget", team_id, "--cents", "5000"])
-        r = runner.invoke(
-            cli_app, ["team", "set-cost-budget", team_id, "--unlimited"]
-        )
+        r = runner.invoke(cli_app, ["team", "set-cost-budget", team_id, "--unlimited"])
         assert r.exit_code == 0, r.output
         assert "unlimited" in r.stdout
 
         team = asyncio.run(_fetch_team(db_path, team_id))
         assert team.monthly_cost_hcents_budget is None
 
-    def test_negative_cents_rejected(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_negative_cents_rejected(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
-        r = runner.invoke(
-            cli_app, ["team", "set-cost-budget", team_id, "--cents", "0"]
-        )
+        r = runner.invoke(cli_app, ["team", "set-cost-budget", team_id, "--cents", "0"])
         assert r.exit_code != 0
         assert "must be > 0" in r.stderr
 
-    def test_conflicting_flags_rejected(
-        self, runner: CliRunner, db_path: Path
-    ) -> None:
+    def test_conflicting_flags_rejected(self, runner: CliRunner, db_path: Path) -> None:
         _, team_id = asyncio.run(_seed_tenant_team(db_path))
         r = runner.invoke(
             cli_app,
@@ -613,8 +577,6 @@ class TestTeamSetCostBudget:
         assert r.exit_code != 0
 
     def test_unknown_team(self, runner: CliRunner, db_path: Path) -> None:
-        r = runner.invoke(
-            cli_app, ["team", "set-cost-budget", "ghost-id", "--cents", "100"]
-        )
+        r = runner.invoke(cli_app, ["team", "set-cost-budget", "ghost-id", "--cents", "100"])
         assert r.exit_code != 0
         assert "not found" in r.stderr

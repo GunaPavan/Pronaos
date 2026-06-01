@@ -82,9 +82,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             http_requests_total.labels(
                 method=method, route=route, status_code=str(status_code)
             ).inc()
-            http_request_duration_seconds.labels(method=method, route=route).observe(
-                duration
-            )
+            http_request_duration_seconds.labels(method=method, route=route).observe(duration)
 
     @staticmethod
     def _route_label(request: Request) -> str:

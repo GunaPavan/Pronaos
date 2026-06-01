@@ -1,0 +1,118 @@
+name: pii_coverage
+description: |
+  Coverage cases the Phase 8 regex detectors MISS but the Phase 22
+  Presidio ML detector should catch. Each case has the form of a normal
+  user prompt that happens to contain a piece of PII regex can't see:
+  names in conversational context, spelled-out numbers, foreign
+  formats, dates of birth as words. The script
+  ``scripts/eval_pii_coverage.py`` sends every prompt through the
+  gateway twice (regex-only, then regex+Presidio) and reports the
+  detection delta.
+
+  The 'expected' rubric is required by the golden-set loader but not
+  used by the coverage script — quality scoring is irrelevant here;
+  only the X-Pronaos-Guardrails response header matters.
+
+cases:
+  # ---- Names (regex CANNOT catch — no syntactic pattern) ----
+  - id: name_in_intro
+    category: name
+    tags: [presidio.PERSON]
+    prompt: |
+      Hi! My name is Alice Brown and I'd like to update my account.
+    expected: |
+      Not used — coverage probe.
+
+  - id: name_in_handoff
+    category: name
+    tags: [presidio.PERSON]
+    prompt: |
+      Please loop in my colleague David Williams on this thread.
+    expected: |
+      Not used — coverage probe.
+
+  - id: name_with_title
+    category: name
+    tags: [presidio.PERSON]
+    prompt: |
+      Dr. Maria Gonzalez signed off on the change last week.
+    expected: |
+      Not used — coverage probe.
+
+  # ---- Locations (regex CANNOT catch — no zip required) ----
+  - id: location_city
+    category: location
+    tags: [presidio.LOCATION]
+    prompt: |
+      I'm flying out of San Francisco next Tuesday and need a hotel near
+      the convention center.
+    expected: |
+      Not used — coverage probe.
+
+  - id: location_country
+    category: location
+    tags: [presidio.LOCATION]
+    prompt: |
+      Our team in Germany handles EMEA support.
+    expected: |
+      Not used — coverage probe.
+
+  # ---- Dates as words (regex CANNOT catch — no MM/DD/YYYY) ----
+  - id: dob_words
+    category: date
+    tags: [presidio.DATE_TIME]
+    prompt: |
+      For verification, my date of birth is January 3rd, 1985.
+    expected: |
+      Not used — coverage probe.
+
+  - id: appointment_phrase
+    category: date
+    tags: [presidio.DATE_TIME]
+    prompt: |
+      The follow-up is scheduled for next Friday at 3pm.
+    expected: |
+      Not used — coverage probe.
+
+  # ---- Foreign-format phone numbers (regex doesn't match) ----
+  - id: phone_uk_format
+    category: phone
+    tags: [presidio.PHONE_NUMBER]
+    prompt: |
+      You can reach me at +44 20 7946 0958 during UK business hours.
+    expected: |
+      Not used — coverage probe.
+
+  - id: phone_intl_dashes
+    category: phone
+    tags: [presidio.PHONE_NUMBER]
+    prompt: |
+      Please call the support line at +49-30-12345678.
+    expected: |
+      Not used — coverage probe.
+
+  # ---- Composite cases (multiple entity types in one prompt) ----
+  - id: name_and_location
+    category: composite
+    tags: [presidio.PERSON, presidio.LOCATION]
+    prompt: |
+      My account manager Sarah Johnson recently moved to our Chicago office.
+    expected: |
+      Not used — coverage probe.
+
+  - id: name_dob_composite
+    category: composite
+    tags: [presidio.PERSON, presidio.DATE_TIME]
+    prompt: |
+      Patient Michael O'Brien was admitted on March 15th, 2024.
+    expected: |
+      Not used — coverage probe.
+
+  # ---- Control: regex DOES catch this (sanity check both detectors fire) ----
+  - id: regex_caught_email
+    category: control
+    tags: [pii.email, presidio.EMAIL_ADDRESS]
+    prompt: |
+      Reply-all to alice@example.com when you're done.
+    expected: |
+      Not used — coverage probe.

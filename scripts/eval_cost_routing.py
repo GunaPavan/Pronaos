@@ -45,7 +45,6 @@ import httpx
 from pronaos.eval.data import EvalCase, load_golden_set
 from pronaos.eval.scorer import LLMJudgeScorer
 
-
 # --------------------------------------------------------------------------- #
 # Per-call result                                                             #
 # --------------------------------------------------------------------------- #
@@ -122,7 +121,7 @@ async def _fire_case(
             },
             timeout=60.0,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return CallResult(
             case_id=case.id,
             score=0.0,
@@ -165,7 +164,7 @@ async def _fire_case(
             cost_hcents=cost,
             routed_model=routed,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return CallResult(
             case_id=case.id,
             score=0.0,

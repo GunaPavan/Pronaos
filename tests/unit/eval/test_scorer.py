@@ -89,9 +89,7 @@ def test_score_case_insensitive() -> None:
 async def test_scorer_returns_parsed_verdict() -> None:
     """End-to-end: call the gateway, get a reply, parse it."""
     respx.post(JUDGE_URL).mock(
-        return_value=httpx.Response(
-            200, json=_judge_reply("SCORE: 0.9\nWHY: very accurate")
-        )
+        return_value=httpx.Response(200, json=_judge_reply("SCORE: 0.9\nWHY: very accurate"))
     )
     scorer = LLMJudgeScorer(
         base_url="http://gateway.local",

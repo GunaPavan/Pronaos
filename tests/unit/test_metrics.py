@@ -174,9 +174,15 @@ async def test_successful_chat_records_provider_metrics(auth_setup) -> None:  # 
     )
     assert resp.status_code == 200, resp.text
 
-    assert _counter_value(m.provider_requests_total, **provider_labels, status="success") - req_before == pytest.approx(1.0)
-    assert _counter_value(m.provider_tokens_total, **provider_labels, direction="prompt") - prompt_before == pytest.approx(11.0)
-    assert _counter_value(m.provider_tokens_total, **provider_labels, direction="completion") - completion_before == pytest.approx(7.0)
+    assert _counter_value(
+        m.provider_requests_total, **provider_labels, status="success"
+    ) - req_before == pytest.approx(1.0)
+    assert _counter_value(
+        m.provider_tokens_total, **provider_labels, direction="prompt"
+    ) - prompt_before == pytest.approx(11.0)
+    assert _counter_value(
+        m.provider_tokens_total, **provider_labels, direction="completion"
+    ) - completion_before == pytest.approx(7.0)
     # Don't pin the exact cost (pricing map can change); just confirm the
     # cost counter MOVED — an Opus call with 18 tokens should never be free.
     assert _counter_value(m.provider_cost_hcents_total, **provider_labels) > cost_before

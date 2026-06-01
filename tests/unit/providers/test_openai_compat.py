@@ -257,6 +257,112 @@ class TestErrors:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 56 — reasoning-token surface (OpenAI o1/o3, DeepSeek R1)              #
+# --------------------------------------------------------------------------- #
+
+
+class TestReasoningTokens:
+    """Both OpenAI o-series and DeepSeek R1 expose reasoning token counts
+    via ``usage.completion_tokens_details.reasoning_tokens``. The count
+    is ALREADY included in ``completion_tokens`` — cost math is unchanged.
+    DeepSeek additionally ships CoT text as ``message.reasoning_content``;
+    OpenAI doesn't (intentional)."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_reasoning_tokens_extracted_non_streaming(
+        self, provider: OpenAICompatibleProvider
+    ) -> None:
+        body = {
+            "id": "chatcmpl_o1",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": "Hello.", "role": "assistant"},
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 250,
+                # completion_tokens INCLUDES reasoning_tokens already.
+                "completion_tokens_details": {"reasoning_tokens": 200},
+            },
+        }
+        respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=body)
+        )
+        req = ChatCompletionRequest(
+            model="groq/o1-test",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        chunk = chunks[0]
+        assert chunk.reasoning_tokens == 200
+        assert chunk.completion_tokens == 250  # untouched — already-included
+        assert chunk.reasoning_content is None  # OpenAI doesn't ship CoT
+        await provider.aclose()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_deepseek_reasoning_content_preserved(
+        self, provider: OpenAICompatibleProvider
+    ) -> None:
+        """DeepSeek R1 surfaces the CoT text via message.reasoning_content."""
+        body = {
+            "id": "chatcmpl_r1",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "Final.",
+                        "reasoning_content": "Let me think step by step...",
+                        "role": "assistant",
+                    },
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 50,
+                "completion_tokens_details": {"reasoning_tokens": 35},
+            },
+        }
+        respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=body)
+        )
+        req = ChatCompletionRequest(
+            model="groq/deepseek-r1",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        chunk = chunks[0]
+        assert chunk.reasoning_tokens == 35
+        assert chunk.reasoning_content == "Let me think step by step..."
+        # content_delta carries final answer only — NOT reasoning_content.
+        assert chunk.content_delta == "Final."
+        await provider.aclose()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_reasoning_model_unaffected(
+        self, provider: OpenAICompatibleProvider
+    ) -> None:
+        """Regression: a plain Groq Llama response (no
+        completion_tokens_details) must not invent reasoning_tokens."""
+        respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=_mock_body("pong"))
+        )
+        req = ChatCompletionRequest(
+            model="groq/llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        chunks = [c async for c in await provider.chat_completion(req)]
+        chunk = chunks[0]
+        assert chunk.reasoning_tokens == 0
+        assert chunk.reasoning_content is None
+        await provider.aclose()
+
+
+# --------------------------------------------------------------------------- #
 # Cost math                                                                   #
 # --------------------------------------------------------------------------- #
 

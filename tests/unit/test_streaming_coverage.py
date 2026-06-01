@@ -94,6 +94,7 @@ async def streaming_setup(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Any]
     # AuditLogger is registered by create_app's lifespan; mirror it here
     # because the test fixture bypasses lifespan.
     from pronaos.audit.logger import AuditLogger
+
     app.state.audit_logger = AuditLogger()
 
     transport = httpx.ASGITransport(app=app)
@@ -130,14 +131,14 @@ def _anthropic_streaming_chunks(text_with_pii: str) -> list[bytes]:
     ]
     events = []
     events.append(
-        b'event: message_start\ndata: '
+        b"event: message_start\ndata: "
         b'{"type":"message_start","message":{"id":"msg_01","type":"message",'
         b'"role":"assistant","content":[],"model":"claude-opus-4-7",'
         b'"stop_reason":null,"stop_sequence":null,'
         b'"usage":{"input_tokens":10,"output_tokens":0}}}\n\n'
     )
     events.append(
-        b'event: content_block_start\ndata: '
+        b"event: content_block_start\ndata: "
         b'{"type":"content_block_start","index":0,'
         b'"content_block":{"type":"text","text":""}}\n\n'
     )
@@ -145,23 +146,18 @@ def _anthropic_streaming_chunks(text_with_pii: str) -> list[bytes]:
         if not p:
             continue
         events.append(
-            f'event: content_block_delta\ndata: '
+            f"event: content_block_delta\ndata: "
             f'{{"type":"content_block_delta","index":0,'
             f'"delta":{{"type":"text_delta","text":{p!r}}}}}\n\n'.encode()
         )
+    events.append(b'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n')
     events.append(
-        b'event: content_block_stop\ndata: '
-        b'{"type":"content_block_stop","index":0}\n\n'
-    )
-    events.append(
-        b'event: message_delta\ndata: '
+        b"event: message_delta\ndata: "
         b'{"type":"message_delta",'
         b'"delta":{"stop_reason":"end_turn","stop_sequence":null},'
         b'"usage":{"output_tokens":12}}\n\n'
     )
-    events.append(
-        b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
-    )
+    events.append(b'event: message_stop\ndata: {"type":"message_stop"}\n\n')
     return events
 
 
@@ -218,12 +214,16 @@ async def test_streaming_response_egress_scanned_and_audited(
     # generator should have run after the body was drained.
     async with streaming_setup.sm() as session:
         rows = (
-            await session.execute(
-                select(AuditRecord)
-                .where(AuditRecord.tenant_id == streaming_setup.tenant_id)
-                .order_by(AuditRecord.ts.desc())
+            (
+                await session.execute(
+                    select(AuditRecord)
+                    .where(AuditRecord.tenant_id == streaming_setup.tenant_id)
+                    .order_by(AuditRecord.ts.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert len(rows) >= 1, (
         "no audit record written for the streaming call — Phase 11 gap not closed"
@@ -299,12 +299,14 @@ async def test_streaming_clean_response_still_audits(
 
     async with streaming_setup.sm() as session:
         rows = (
-            await session.execute(
-                select(AuditRecord).where(
-                    AuditRecord.tenant_id == streaming_setup.tenant_id
+            (
+                await session.execute(
+                    select(AuditRecord).where(AuditRecord.tenant_id == streaming_setup.tenant_id)
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert len(rows) == 1
     # Audit record exists; chain is intact (genesis record).
     assert rows[0].prev_hash == ""
@@ -364,6 +366,7 @@ async def test_streaming_cancellation_records_metric_and_audit(
     class _SlowProvider(Provider):
         """Yields chunks one at a time, sleeping between them so the
         consumer can be cancelled mid-stream deterministically."""
+
         name = "anthropic"  # type: ignore[misc]
 
         async def chat_completion(self, req: Any) -> Any:
@@ -409,14 +412,10 @@ async def test_streaming_cancellation_records_metric_and_audit(
         from pronaos.db.models import ApiKey, Team
 
         team_row = (
-            await session.execute(
-                select(Team).where(Team.tenant_id == streaming_setup.tenant_id)
-            )
+            await session.execute(select(Team).where(Team.tenant_id == streaming_setup.tenant_id))
         ).scalar_one()
         key_row = (
-            await session.execute(
-                select(ApiKey).where(ApiKey.team_id == team_row.id)
-            )
+            await session.execute(select(ApiKey).where(ApiKey.team_id == team_row.id))
         ).scalar_one()
 
         principal = Principal(

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js build outputs
+.next/
+out/
+build/
+
+# Testing
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# Misc
+.DS_Store
+*.log
+.env*.local
+*.tsbuildinfo
+next-env.d.ts

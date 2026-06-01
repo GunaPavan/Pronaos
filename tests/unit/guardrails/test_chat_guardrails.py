@@ -126,9 +126,7 @@ async def test_ingress_redaction_reaches_provider(guardrails_setup) -> None:  # 
         headers={"Authorization": f"Bearer {guardrails_setup.api_key}"},
         json={
             "model": "anthropic/claude-opus-4-7",
-            "messages": [
-                {"role": "user", "content": "Email me at alice@example.com"}
-            ],
+            "messages": [{"role": "user", "content": "Email me at alice@example.com"}],
             "temperature": 0.0,
         },
     )

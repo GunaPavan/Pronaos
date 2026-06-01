@@ -97,11 +97,8 @@ def validate_allowed_models(value: object) -> list[str]:
     for i, entry in enumerate(value):
         if not isinstance(entry, str):
             raise ValueError(
-                f"allowed_models[{i}] must be a string pattern; "
-                f"got {type(entry).__name__}"
+                f"allowed_models[{i}] must be a string pattern; got {type(entry).__name__}"
             )
         if not entry.strip():
-            raise ValueError(
-                f"allowed_models[{i}] is empty — patterns must be non-empty strings"
-            )
+            raise ValueError(f"allowed_models[{i}] is empty — patterns must be non-empty strings")
     return value

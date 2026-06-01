@@ -206,9 +206,7 @@ async def test_verify_detects_field_tampering(sm) -> None:  # type: ignore[no-un
     # Tamper: overwrite a's request_hash without updating this_hash.
     async with sm() as session:
         await session.execute(
-            update(AuditRecord)
-            .where(AuditRecord.id == a.id)
-            .values(request_hash="x" * 64)
+            update(AuditRecord).where(AuditRecord.id == a.id).values(request_hash="x" * 64)
         )
         await session.commit()
 

@@ -138,19 +138,36 @@ class AuditLogger:
         request_body: dict[str, Any] | list[Any],
         response_body: dict[str, Any] | list[Any],
         request_id: str | None = None,
+        tool_names: tuple[str, ...] | None = None,
     ) -> AuditRecord | None:
         """Write one audit record. Fail-open: any error logs and returns ``None``.
 
         Returns the persisted ``AuditRecord`` on success so callers can
         inspect ``this_hash`` (useful for response headers / span
         attributes / debugging). ``None`` on failure — callers should
-        treat that as "audit gap" not "request failed.\""""
+        treat that as "audit gap" not "request failed."
+
+        Phase 37 — ``tool_names`` (comma-joined into the column) records
+        the LLM-emitted tool calls so compliance audits can query "which
+        tools did this team use this month" without re-parsing
+        ``usage_records.tool_names`` (same data, kept on both rows so
+        either source of truth can answer the question). The field is
+        deliberately OUTSIDE the canonical ``this_hash`` input — adding
+        a nullable field to the hash would invalidate every existing
+        chain. Tamper-evidence still applies: the ``response_body``
+        already carries ``tool_calls`` and is hashed as part of
+        ``response_hash``.
+        """
         try:
             prev = await self._latest_for_tenant(session, tenant_id)
             prev_hash = prev.this_hash if prev is not None else ""
 
             request_hash = hash_body(request_body)
             response_hash = hash_body(response_body)
+
+            tool_names_str: str | None = None
+            if tool_names:
+                tool_names_str = ",".join(tool_names)
 
             # Use a fresh AuditRecord instance — it generates its own
             # id and ts via column defaults. We compute this_hash
@@ -166,6 +183,7 @@ class AuditLogger:
                 prev_hash=prev_hash,
                 this_hash="",  # placeholder, set below
                 request_id=request_id,
+                tool_names=tool_names_str,
             )
 
             # Trigger column defaults so id + ts are populated before
@@ -199,9 +217,7 @@ class AuditLogger:
             return None
 
     @staticmethod
-    async def _latest_for_tenant(
-        session: AsyncSession, tenant_id: str
-    ) -> AuditRecord | None:
+    async def _latest_for_tenant(session: AsyncSession, tenant_id: str) -> AuditRecord | None:
         """Find the tail of the tenant's chain. Order by (ts DESC, id DESC)
         so concurrent inserts at identical timestamps still produce a
         deterministic order."""

@@ -71,6 +71,26 @@ class ProviderCatalogEntry:
     default_headers: dict[str, str] = field(default_factory=dict)
     auth: AuthConfig = field(default_factory=AuthConfig)
     notes: str = ""
+    # Phase 31: per-model embedding pricing, separate from ``pricing``.
+    # ``output_hcents_per_mtok`` is ignored for embeddings (a vector is
+    # not text we charge for). Models present here are the ones the
+    # ``/v1/embeddings`` endpoint accepts under this provider key.
+    embedding_pricing: dict[str, Pricing] = field(default_factory=dict)
+    # Embedding-shape hint: ``"openai"`` (default OpenAI shape), ``"cohere"``,
+    # ``"voyage"``. The registry picks the matching adapter from this hint.
+    embedding_shape: str = "openai"
+    # Phase 32: per-model rerank pricing. ``input_hcents_per_mtok`` semantics
+    # differ by ``rerank_shape``:
+    #   - "cohere": per-CALL hcents (Cohere bills per "search unit", one
+    #     call up to 100 documents = one unit, regardless of token count).
+    #   - "voyage": per-million-input-tokens (sum of query + all documents).
+    # ``output_hcents_per_mtok`` is unused. The misnaming is intentional —
+    # reusing Pricing keeps the catalog uniform; the rerank adapter's
+    # cost_hcents() knows how to interpret its own row.
+    rerank_pricing: dict[str, Pricing] = field(default_factory=dict)
+    # Rerank-shape hint: ``"cohere"`` or ``"voyage"``. Registry picks the
+    # matching adapter.
+    rerank_shape: str = "cohere"
 
 
 # Pricing values below are best-effort representative numbers. Update from
@@ -116,7 +136,11 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
                 supports_tools=True, supports_streaming=True, max_context_tokens=128_000
             ),
             "meta-llama/llama-4-scout-17b-16e-instruct": ModelCapabilities(
-                supports_tools=True, supports_streaming=True, max_context_tokens=128_000
+                supports_tools=True,
+                supports_streaming=True,
+                # Llama 4 Scout is multimodal (text + vision) — Phase 41.
+                supports_vision=True,
+                max_context_tokens=128_000,
             ),
         },
         typical_p50_ms=250,  # Groq is the fast-tier reference.
@@ -204,6 +228,17 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=800,
+        # Phase 31: embedding models on the same key+endpoint.
+        # Pricing: hcents per million input tokens.
+        # text-embedding-3-small: $0.02/Mtok → 2000 hcents
+        # text-embedding-3-large: $0.13/Mtok → 13_000 hcents
+        # text-embedding-ada-002 (legacy): $0.10/Mtok → 10_000 hcents
+        embedding_pricing={
+            "text-embedding-3-small": Pricing(2_000, 0),
+            "text-embedding-3-large": Pricing(13_000, 0),
+            "text-embedding-ada-002": Pricing(10_000, 0),
+        },
+        embedding_shape="openai",
     ),
     "deepseek": ProviderCatalogEntry(
         key="deepseek",
@@ -242,6 +277,12 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=900,
+        # Mistral's embedding endpoint speaks OpenAI shape. ``mistral-embed``
+        # is $0.10/Mtok = 10_000 hcents.
+        embedding_pricing={
+            "mistral-embed": Pricing(10_000, 0),
+        },
+        embedding_shape="openai",
     ),
     "perplexity": ProviderCatalogEntry(
         key="perplexity",
@@ -273,6 +314,227 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=1000,
+    ),
+    # ------------------------ Embedding-only providers ----------------------
+    # These are chat-less catalog entries — pricing/capabilities are empty,
+    # only embedding_pricing is populated. The registry handles them by
+    # the embedding_shape hint instead of building an OpenAICompatibleProvider.
+    "cohere": ProviderCatalogEntry(
+        key="cohere",
+        base_url="https://api.cohere.com",
+        settings_attr="cohere_api_key",
+        # Cohere embed-v3 family: $0.10/Mtok = 10_000 hcents
+        embedding_pricing={
+            "embed-english-v3.0": Pricing(10_000, 0),
+            "embed-multilingual-v3.0": Pricing(10_000, 0),
+            "embed-english-light-v3.0": Pricing(10_000, 0),
+        },
+        embedding_shape="cohere",
+        # Rerank pricing: per-call (one search unit per call, up to 100 docs).
+        # $2 / 1000 search units = $0.002/call = 0.2 cents = 20 hcents per call.
+        # The Pricing field input_hcents_per_mtok is reused as "per-call hcents"
+        # for cohere rerank — see catalog.py docstring on rerank_pricing.
+        rerank_pricing={
+            "rerank-english-v3.0": Pricing(20, 0),
+            "rerank-multilingual-v3.0": Pricing(20, 0),
+            "rerank-english-v3.5": Pricing(20, 0),
+        },
+        rerank_shape="cohere",
+        typical_p50_ms=300,
+        notes="Embedding + rerank provider. /v2/embed and /v2/rerank shapes.",
+    ),
+    "voyage": ProviderCatalogEntry(
+        key="voyage",
+        base_url="https://api.voyageai.com/v1",
+        settings_attr="voyage_api_key",
+        # Voyage pricing (May 2026):
+        # voyage-3: $0.06/Mtok = 6_000 hcents
+        # voyage-3-lite: $0.02/Mtok = 2_000 hcents
+        # voyage-large-2: $0.12/Mtok = 12_000 hcents
+        # voyage-code-2: $0.12/Mtok = 12_000 hcents
+        embedding_pricing={
+            "voyage-3": Pricing(6_000, 0),
+            "voyage-3-lite": Pricing(2_000, 0),
+            "voyage-large-2": Pricing(12_000, 0),
+            "voyage-code-2": Pricing(12_000, 0),
+        },
+        embedding_shape="voyage",
+        # Rerank pricing: per-token. rerank-2 $0.05/Mtok = 5_000 hcents/Mtok;
+        # rerank-lite-2 $0.02/Mtok = 2_000 hcents/Mtok.
+        rerank_pricing={
+            "rerank-2": Pricing(5_000, 0),
+            "rerank-lite-2": Pricing(2_000, 0),
+        },
+        rerank_shape="voyage",
+        typical_p50_ms=400,
+        notes="Embedding + rerank provider. Frontier-quality retrieval models.",
+    ),
+    # ------------------------ AWS Bedrock (native, SigV4-signed) ------------
+    # Phase 42 — Bedrock-hosted models behind one provider key. Unlike the
+    # OpenAI-compat catalog entries, this one is consumed by ``BedrockProvider``
+    # (not ``OpenAICompatibleProvider``); the ``base_url`` is a template that
+    # the adapter renders with the configured region at construction time.
+    # Auth is SigV4 over httpx, not Bearer — the registry knows to skip the
+    # auth header when building this provider.
+    #
+    # Pricing is in hundredths-of-a-cent per million tokens, matching the
+    # rest of the catalog. Source: AWS Bedrock public pricing page,
+    # us-east-1 rates as of May 2026.
+    #
+    # Bedrock model IDs use the AWS-style ``vendor.model-name-version`` shape
+    # (e.g. ``anthropic.claude-3-5-haiku-20241022-v1:0``). The colon and dot
+    # in the ID are valid in our prefix scheme because the chat handler
+    # treats everything after the first ``/`` as the opaque model name.
+    "bedrock": ProviderCatalogEntry(
+        key="bedrock",
+        # The runtime endpoint is per-region; the adapter builds the full
+        # URL by interpolating ``{region}`` from settings. We store the
+        # template here so static analysis still finds the placeholder.
+        base_url="https://bedrock-runtime.{region}.amazonaws.com",
+        settings_attr="aws_access_key_id",
+        pricing={
+            # Anthropic on Bedrock — same model bytes as direct Anthropic
+            # API, billed by AWS at the prices below.
+            "anthropic.claude-3-5-haiku-20241022-v1:0": Pricing(80_000, 400_000),
+            "anthropic.claude-3-5-sonnet-20241022-v2:0": Pricing(300_000, 1_500_000),
+            # Meta Llama 3 on Bedrock — text-only.
+            "meta.llama3-70b-instruct-v1:0": Pricing(265_000, 350_000),
+            "meta.llama3-1-70b-instruct-v1:0": Pricing(265_000, 350_000),
+            # Amazon Nova — Amazon's own multimodal foundation model.
+            # Nova Pro: $0.80 / Mtok input, $3.20 / Mtok output.
+            "amazon.nova-pro-v1:0": Pricing(80_000, 320_000),
+            "amazon.nova-lite-v1:0": Pricing(6_000, 24_000),
+            # Mistral on Bedrock — Mistral Large v2.
+            "mistral.mistral-large-2407-v1:0": Pricing(200_000, 600_000),
+        },
+        capabilities={
+            "anthropic.claude-3-5-haiku-20241022-v1:0": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=200_000,
+            ),
+            "anthropic.claude-3-5-sonnet-20241022-v2:0": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=200_000,
+            ),
+            "meta.llama3-70b-instruct-v1:0": ModelCapabilities(
+                supports_tools=False,  # Llama on Bedrock has no native tool-call shape today
+                supports_streaming=True,
+                supports_vision=False,
+                max_context_tokens=8192,
+            ),
+            "meta.llama3-1-70b-instruct-v1:0": ModelCapabilities(
+                supports_tools=False,
+                supports_streaming=True,
+                supports_vision=False,
+                max_context_tokens=128_000,
+            ),
+            "amazon.nova-pro-v1:0": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=300_000,
+            ),
+            "amazon.nova-lite-v1:0": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=300_000,
+            ),
+            "mistral.mistral-large-2407-v1:0": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=False,
+                max_context_tokens=128_000,
+            ),
+        },
+        typical_p50_ms=1500,  # Bedrock adds an AWS hop; first-token latency
+        # is noticeably higher than direct-provider APIs on small prompts.
+        notes=(
+            "AWS Bedrock-hosted models. SigV4-signed; requires "
+            "AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (or IRSA in-cluster). "
+            "Per-region; set AWS_REGION (default us-east-1)."
+        ),
+    ),
+    # ------------------------ Google Cloud Vertex AI ------------------------
+    # Vertex hosts foundation models across multiple publishers. The
+    # model-ID convention is ``vertex/{publisher}/{model}`` — the
+    # adapter strips ``vertex/`` and splits the rest on the first ``/``
+    # to route per-publisher.
+    "vertex": ProviderCatalogEntry(
+        key="vertex",
+        # Region-specific endpoint; adapter interpolates region from
+        # settings. Stored as a template here so static analysis still
+        # spots the placeholder.
+        base_url="https://{region}-aiplatform.googleapis.com",
+        settings_attr="vertex_project_id",
+        pricing={
+            # Gemini family — pricing per GCP public pricing as of
+            # mid-2026. Values are hundredths-of-a-cent per Mtok
+            # (matching every other entry in the catalog).
+            # Gemini 1.5 Flash: $0.075/Mtok input, $0.30/Mtok output
+            "google/gemini-1.5-flash": Pricing(7_500, 30_000),
+            # Gemini 1.5 Pro: $1.25/Mtok input, $5.00/Mtok output
+            # (pricing tiers: prompts <128K tokens use these rates)
+            "google/gemini-1.5-pro": Pricing(125_000, 500_000),
+            # Gemini 2.0 Flash: $0.10/Mtok input, $0.40/Mtok output
+            "google/gemini-2.0-flash": Pricing(10_000, 40_000),
+            # Gemini 2.5 Pro: $1.25/Mtok input, $10.00/Mtok output
+            "google/gemini-2.5-pro": Pricing(125_000, 1_000_000),
+            # Claude on Vertex — same model bytes as direct Anthropic;
+            # GCP bills at rates that match Anthropic's direct pricing.
+            "anthropic/claude-3-5-haiku@20241022": Pricing(80_000, 400_000),
+            "anthropic/claude-3-5-sonnet@20241022": Pricing(300_000, 1_500_000),
+        },
+        capabilities={
+            "google/gemini-1.5-flash": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=1_000_000,
+            ),
+            "google/gemini-1.5-pro": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=2_000_000,
+            ),
+            "google/gemini-2.0-flash": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=1_000_000,
+            ),
+            "google/gemini-2.5-pro": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=2_000_000,
+            ),
+            "anthropic/claude-3-5-haiku@20241022": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=200_000,
+            ),
+            "anthropic/claude-3-5-sonnet@20241022": ModelCapabilities(
+                supports_tools=True,
+                supports_streaming=True,
+                supports_vision=True,
+                max_context_tokens=200_000,
+            ),
+        },
+        typical_p50_ms=1200,  # GCP region adds a hop; comparable to Bedrock
+        notes=(
+            "Vertex AI hosted models. GCP service-account JWT auth; "
+            "requires VERTEX_PROJECT_ID + VERTEX_SERVICE_ACCOUNT_JSON "
+            "(or GOOGLE_APPLICATION_CREDENTIALS pointing at the SA "
+            "JSON file). Per-region; set VERTEX_REGION (default "
+            "us-central1)."
+        ),
     ),
     # ------------------------ Local / self-hosted ---------------------------
     "ollama": ProviderCatalogEntry(

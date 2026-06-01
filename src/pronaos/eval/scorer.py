@@ -88,8 +88,7 @@ class ScoreResult:
 class Scorer(Protocol):
     """Stateless async scorer."""
 
-    async def score(self, *, prompt: str, expected: str, candidate: str) -> ScoreResult:
-        ...
+    async def score(self, *, prompt: str, expected: str, candidate: str) -> ScoreResult: ...
 
 
 class LLMJudgeScorer(Scorer):
@@ -114,12 +113,8 @@ class LLMJudgeScorer(Scorer):
         self._judge_model = judge_model
         self._timeout = timeout_seconds
 
-    async def score(
-        self, *, prompt: str, expected: str, candidate: str
-    ) -> ScoreResult:
-        body = _JUDGE_PROMPT_TEMPLATE.format(
-            prompt=prompt, expected=expected, candidate=candidate
-        )
+    async def score(self, *, prompt: str, expected: str, candidate: str) -> ScoreResult:
+        body = _JUDGE_PROMPT_TEMPLATE.format(prompt=prompt, expected=expected, candidate=candidate)
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
@@ -135,9 +130,7 @@ class LLMJudgeScorer(Scorer):
                     },
                 )
         except Exception as e:
-            return ScoreResult(
-                score=0.0, justification="", judge_error=f"network: {e}"
-            )
+            return ScoreResult(score=0.0, justification="", judge_error=f"network: {e}")
 
         if resp.status_code != 200:
             return ScoreResult(
@@ -158,9 +151,7 @@ class LLMJudgeScorer(Scorer):
 # Accept optional leading sign so out-of-range negative scores are
 # parsed (and then clamped by the caller) rather than silently
 # truncating to their absolute value.
-_SCORE_RE = re.compile(
-    r"SCORE\s*:\s*(-?[01](?:\.\d+)?|-?0?\.\d+)", re.IGNORECASE
-)
+_SCORE_RE = re.compile(r"SCORE\s*:\s*(-?[01](?:\.\d+)?|-?0?\.\d+)", re.IGNORECASE)
 # Fallback: catches "0.7" anywhere in the reply if the SCORE label was
 # dropped. Cheap-judge robustness. Stricter than the labeled form
 # (no negative numbers in fallback) — a bare "-0.2" in prose is

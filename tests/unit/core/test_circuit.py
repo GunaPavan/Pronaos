@@ -65,7 +65,7 @@ def test_consecutive_failures_trip_breaker_at_threshold() -> None:
     br.record_failure()
     assert br.state is CircuitState.CLOSED  # 2 < 3
     br.record_failure()
-    assert br.state is CircuitState.OPEN     # 3 >= 3
+    assert br.state is CircuitState.OPEN  # 3 >= 3
     assert br.trip_count == 1
 
 
@@ -77,10 +77,10 @@ def test_intermittent_success_resets_failure_counter() -> None:
 
     br.record_failure()
     br.record_failure()
-    br.record_success()   # resets counter
+    br.record_success()  # resets counter
     br.record_failure()
     br.record_failure()
-    assert br.state is CircuitState.CLOSED   # only 2 consecutive now
+    assert br.state is CircuitState.CLOSED  # only 2 consecutive now
     assert br.trip_count == 0
 
 
@@ -133,7 +133,7 @@ def test_half_open_success_closes_breaker() -> None:
     br.record_failure()
     br.record_failure()
     clock.advance(10.0)
-    br.allow_request()           # transitions to HALF_OPEN
+    br.allow_request()  # transitions to HALF_OPEN
     br.record_success()
     assert br.state is CircuitState.CLOSED
     # Trip counter records only the original trip — a successful
@@ -152,10 +152,10 @@ def test_half_open_failure_reopens_with_fresh_timer() -> None:
         clock=clock,
     )
     br.record_failure()
-    br.record_failure()              # OPEN, t=0
+    br.record_failure()  # OPEN, t=0
     clock.advance(10.0)
-    br.allow_request()                # transitions to HALF_OPEN at t=10
-    br.record_failure()               # probe failed → OPEN at t=10
+    br.allow_request()  # transitions to HALF_OPEN at t=10
+    br.record_failure()  # probe failed → OPEN at t=10
     assert br.state is CircuitState.OPEN
     assert br.trip_count == 2
 
@@ -195,9 +195,7 @@ def test_registry_creates_breakers_lazily() -> None:
 
 def test_registry_isolates_breakers_per_provider() -> None:
     """Tripping the breaker for one provider must not affect another."""
-    reg = CircuitBreakerRegistry(
-        config=CircuitConfig(failure_threshold=1)
-    )
+    reg = CircuitBreakerRegistry(config=CircuitConfig(failure_threshold=1))
     reg.get("groq").record_failure()
     assert reg.get("groq").state is CircuitState.OPEN
     assert reg.get("anthropic").state is CircuitState.CLOSED
@@ -209,7 +207,7 @@ def test_registry_snapshot_includes_only_seen_providers() -> None:
     the metric doesn't claim a state for a provider the gateway has
     never invoked."""
     reg = CircuitBreakerRegistry()
-    reg.get("groq")           # touch one
+    reg.get("groq")  # touch one
     snap = reg.snapshot()
     assert "groq" in snap
     assert "anthropic" not in snap

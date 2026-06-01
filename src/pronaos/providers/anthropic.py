@@ -157,13 +157,52 @@ def _translate_messages_to_anthropic(
         # OpenAI-extra fields (tool_call_id, tool_calls, name) that
         # Anthropic doesn't model. The handler already strips ``None``
         # fields, but a client could still pass extras here.
-        cleaned = {"role": role, "content": m.get("content", "")}
+        #
+        # Phase 41: multi-modal content. When ``content`` is a list of
+        # OpenAI-shape parts (text + image_url), translate to
+        # Anthropic's block shape (text passes through; image_url
+        # becomes image-with-source). Single-string content stays
+        # a string — Anthropic accepts both.
+        raw_content = m.get("content", "")
+        cleaned_content: str | list[dict[str, Any]]
+        if isinstance(raw_content, list):
+            cleaned_content = _translate_content_parts_to_anthropic(raw_content)
+        else:
+            cleaned_content = raw_content if raw_content is not None else ""
+        cleaned = {"role": role, "content": cleaned_content}
         out.append(cleaned)
 
     # Tail flush — covers the (unusual) case where the last message
     # is a tool result, e.g. tests that drive a single-turn round trip.
     _flush_tool_results()
     return out
+
+
+def _translate_content_parts_to_anthropic(
+    parts: list[Any],
+) -> list[dict[str, Any]]:
+    """Translate OpenAI-shape multi-modal parts to Anthropic block shape.
+
+    Phase 41 helper: a request from the client carries
+    ``content: [{"type":"text",...}, {"type":"image_url","image_url":{"url":"..."}}]``.
+    Anthropic wants text parts as-is plus ``image`` blocks with
+    ``source.type=base64`` (for data URIs) or ``source.type=url``
+    (for HTTPS).
+
+    Reuses the production translator in ``core.multimodal`` so the
+    translation logic stays in one place. Anthropic-native parts
+    (``{"type":"image","source":{...}}``) pass through unchanged.
+    """
+    # Local import — avoid a circular import at module load time. The
+    # core module doesn't depend on providers, but providers/* depends
+    # on core/* through several other paths, so we keep this lazy.
+    from pronaos.core.multimodal import translate_messages_for_anthropic
+
+    # ``translate_messages_for_anthropic`` is per-message; wrap parts
+    # in a one-message envelope to reuse it, then unwrap.
+    wrapped = [{"role": "user", "content": parts}]
+    translated = translate_messages_for_anthropic(wrapped)
+    return translated[0]["content"]  # type: ignore[no-any-return]
 
 
 def _finish_reason(anthropic_stop_reason: str | None) -> str | None:
@@ -222,14 +261,40 @@ class AnthropicProvider(Provider):
             return self._chat_streaming(req)
         return await self._chat_non_streaming(req)
 
-    def cost_cents(self, prompt_tokens: int, completion_tokens: int, model: str) -> int:
-        """Return call cost in hundredths of a cent; ``0`` for unknown models."""
+    def cost_cents(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        model: str,
+        *,
+        cache_creation_tokens: int = 0,
+        cache_read_tokens: int = 0,
+    ) -> int:
+        """Return call cost in hundredths of a cent; ``0`` for unknown models.
+
+        Anthropic prompt-cache pricing (per Anthropic docs):
+          - Regular input tokens: 1.0x input_hcents_per_mtok
+          - Cache writes (cache_creation_input_tokens): 1.25x (25% premium
+            for creating the cache entry — Anthropic charges this once)
+          - Cache reads (cache_read_input_tokens): 0.10x (90% discount —
+            this is the FinOps win)
+          - Output tokens: output_hcents_per_mtok unchanged
+
+        Integer math: scale numerators by 100 (cache write multiplier
+        becomes 125; cache read becomes 10), divide by 100_000_000.
+        Avoids float drift on big token counts.
+        """
         price = _PRICING.get(_strip_prefix(model))
         if price is None:
             return 0
+        # Regular non-cached input.
         input_cost = prompt_tokens * price.input_hcents_per_mtok // 1_000_000
+        # Cache writes — 1.25x regular rate.
+        cache_write_cost = cache_creation_tokens * price.input_hcents_per_mtok * 125 // 100_000_000
+        # Cache reads — 0.10x regular rate.
+        cache_read_cost = cache_read_tokens * price.input_hcents_per_mtok * 10 // 100_000_000
         output_cost = completion_tokens * price.output_hcents_per_mtok // 1_000_000
-        return input_cost + output_cost
+        return input_cost + cache_write_cost + cache_read_cost + output_cost
 
     # ---- Non-streaming --------------------------------------------------------
 
@@ -263,6 +328,13 @@ class AnthropicProvider(Provider):
 
         prompt_tokens: int = 0
         completion_tokens: int = 0
+        # Phase 34: Anthropic prompt-cache usage fields. Anthropic emits
+        # cache_creation_input_tokens + cache_read_input_tokens alongside
+        # input_tokens in the message_start event. ``input_tokens`` already
+        # EXCLUDES the cached portion — adding the three gives the total
+        # input set Anthropic processed.
+        cache_creation_tokens: int = 0
+        cache_read_tokens: int = 0
         stop_reason: str | None = None
         # Phase 16: streaming tool_use accumulator.
         #
@@ -280,6 +352,12 @@ class AnthropicProvider(Provider):
         # OpenAI tool_calls shape on the tail chunk — symmetric with the
         # OpenAI-compat adapter's streaming-tools path.
         tool_use_blocks: dict[int, dict[str, Any]] = {}
+        # Phase 56: thinking blocks arrive as a content_block_start with
+        # type="thinking" followed by content_block_delta events with
+        # delta.type="thinking_delta" carrying .thinking text fragments.
+        # Accumulate per-block-index so parallel thinking + text blocks
+        # (rare today but spec-allowed) don't collide.
+        thinking_blocks: dict[int, str] = {}
 
         try:
             async with self._http.stream(
@@ -294,9 +372,14 @@ class AnthropicProvider(Provider):
                     if etype == "message_start":
                         usage = event.get("message", {}).get("usage", {}) or {}
                         prompt_tokens = usage.get("input_tokens", 0) or 0
+                        # Phase 34: pull cache stats. Both fields are
+                        # absent when the client didn't use cache_control.
+                        cache_creation_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+                        cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
                     elif etype == "content_block_start":
                         block = event.get("content_block") or {}
-                        if block.get("type") == "tool_use":
+                        btype = block.get("type")
+                        if btype == "tool_use":
                             idx = event.get("index", 0)
                             tool_use_blocks[idx] = {
                                 "id": block.get("id", ""),
@@ -306,6 +389,13 @@ class AnthropicProvider(Provider):
                                 # subsequent input_json_delta events.
                                 "arguments_str": "",
                             }
+                        elif btype == "thinking":
+                            # Initial thinking text may be present on
+                            # the start event itself, or arrive entirely
+                            # via subsequent thinking_delta events.
+                            idx = event.get("index", 0)
+                            initial = block.get("thinking") or ""
+                            thinking_blocks[idx] = initial if isinstance(initial, str) else ""
                     elif etype == "content_block_delta":
                         delta = event.get("delta", {}) or {}
                         dtype = delta.get("type")
@@ -324,6 +414,16 @@ class AnthropicProvider(Provider):
                                 # the JSON byte-stream and only the
                                 # concatenation is parseable.
                                 entry["arguments_str"] += delta.get("partial_json", "")
+                        elif dtype == "thinking_delta":
+                            # Phase 56: accumulate CoT text. We don't
+                            # surface thinking as content_delta — most
+                            # clients (and the SSE wire shape) expect
+                            # content_delta to be the user-visible text.
+                            # CoT lands on the terminal chunk only.
+                            idx = event.get("index", 0)
+                            thinking_blocks[idx] = thinking_blocks.get(idx, "") + (
+                                delta.get("thinking", "") or ""
+                            )
                     elif etype == "message_delta":
                         usage = event.get("usage", {}) or {}
                         completion_tokens = usage.get("output_tokens", 0) or 0
@@ -357,6 +457,17 @@ class AnthropicProvider(Provider):
                     }
                 )
 
+        # Phase 56: assemble accumulated thinking text + estimate count.
+        # ~4 chars/token ceil-rounded, matches the non-streaming helper.
+        reasoning_content: str | None = None
+        reasoning_tokens = 0
+        if thinking_blocks:
+            ordered = [thinking_blocks[i] for i in sorted(thinking_blocks.keys())]
+            combined = "\n\n".join(t for t in ordered if t)
+            if combined:
+                reasoning_content = combined
+                reasoning_tokens = (len(combined) + 3) // 4
+
         # Final sentinel chunk carrying finish reason, usage totals, and
         # (if the model called tools) the assembled tool_calls list.
         yield ChatCompletionChunk(
@@ -366,6 +477,10 @@ class AnthropicProvider(Provider):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             tool_calls=assembled_tool_calls,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
+            reasoning_content=reasoning_content,
         )
 
     # ---- Helpers --------------------------------------------------------------
@@ -416,6 +531,12 @@ class AnthropicProvider(Provider):
         content_blocks = data.get("content", []) or []
         text_blocks = [b["text"] for b in content_blocks if b.get("type") == "text"]
         tool_calls = _translate_tool_uses_to_openai(content_blocks)
+        # Phase 56: extract extended-thinking content. Anthropic's
+        # thinking tokens are already counted in output_tokens, so the
+        # estimate is purely for visibility — no double-counting.
+        reasoning_content, reasoning_tokens = _extract_thinking_from_content_blocks(
+            content_blocks
+        )
         usage = data.get("usage", {}) or {}
         return ChatCompletionChunk(
             content_delta="".join(text_blocks),
@@ -424,6 +545,13 @@ class AnthropicProvider(Provider):
             completion_tokens=usage.get("output_tokens"),
             tool_calls=tool_calls if tool_calls else None,
             raw=data,
+            # Phase 34: Anthropic prompt-cache stats. Both fields are
+            # absent when the client didn't use cache_control.
+            cache_creation_tokens=usage.get("cache_creation_input_tokens") or 0,
+            cache_read_tokens=usage.get("cache_read_input_tokens") or 0,
+            # Phase 56: extended-thinking surface.
+            reasoning_tokens=reasoning_tokens,
+            reasoning_content=reasoning_content,
         )
 
     @staticmethod
@@ -520,6 +648,47 @@ def _translate_tool_choice_to_anthropic(
         # Already Anthropic-shaped or unknown — pass through.
         return tool_choice
     return {"type": "auto"}
+
+
+def _extract_thinking_from_content_blocks(
+    content_blocks: list[dict[str, Any]],
+) -> tuple[str | None, int]:
+    """Phase 56: pull extended-thinking content out of an Anthropic
+    response's content array.
+
+    Anthropic's extended-thinking shape inserts ``{"type": "thinking",
+    "thinking": "<cot text>", "signature": "..."}`` blocks BEFORE the
+    text blocks. The signature is opaque to Pronaos — it's the
+    upstream's tamper-detection token; we don't validate or persist it
+    here.
+
+    Returns ``(reasoning_content, estimated_tokens)``. When no thinking
+    blocks are present, returns ``(None, 0)``.
+
+    Anthropic does NOT expose a separate thinking-token count in its
+    usage block — those tokens are counted toward ``output_tokens``
+    already. Pronaos estimates the count from the text length using
+    the conservative ~4-chars-per-token heuristic Anthropic publishes
+    for English; this is for FinOps visibility, not billing (cost math
+    on output_tokens already covers it).
+    """
+    pieces: list[str] = []
+    for block in content_blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") != "thinking":
+            continue
+        text = block.get("thinking")
+        if isinstance(text, str) and text:
+            pieces.append(text)
+    if not pieces:
+        return None, 0
+    combined = "\n\n".join(pieces)
+    # ceil-divide so a 1-char string still scores >= 1 token (~4 chars
+    # per token, rounded up — matches Anthropic's published heuristic
+    # for English-language token estimation).
+    estimated = (len(combined) + 3) // 4
+    return combined, estimated
 
 
 def _translate_tool_uses_to_openai(

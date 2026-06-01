@@ -41,6 +41,16 @@ def resolve_policy(
 
     disabled = _parse_disabled_rules(raw.get("disabled_rules"))
     override = _parse_rule_actions(raw.get("rule_actions"))
+
+    # Phase 22 — per-team Presidio toggle.
+    # Shorthand: ``"presidio": {"enabled": false}`` adds the ``presidio``
+    # rule (and any pre-configured entity-level rules) to disabled_rules.
+    # This lets a team opt out of the ML detector entirely without having
+    # to know that the rule canonical name is ``presidio``.
+    presidio_block = raw.get("presidio")
+    if isinstance(presidio_block, Mapping) and presidio_block.get("enabled") is False:
+        disabled = (disabled or set()) | {"presidio"}
+
     return disabled, override
 
 
@@ -96,14 +106,81 @@ def validate_policy(raw: Mapping[str, Any] | None) -> list[str]:
         errors.append(f"policy must be a JSON object, got {type(raw).__name__}")
         return errors
 
-    extra = set(raw.keys()) - {"disabled_rules", "rule_actions"}
+    extra = set(raw.keys()) - {"disabled_rules", "rule_actions", "presidio", "llama_guard"}
     if extra:
         errors.append(f"unknown policy keys: {sorted(extra)}")
 
+    # Phase 44 — Llama Guard ML jailbreak classifier block. Shape:
+    #   "llama_guard": {
+    #       "enabled": bool,
+    #       "model": str (optional override; falls back to settings),
+    #       "default_action": "block" | "log_only" | "redact"
+    #   }
+    lg = raw.get("llama_guard")
+    if lg is not None:
+        if not isinstance(lg, Mapping):
+            errors.append(f"llama_guard must be a mapping, got {type(lg).__name__}")
+        else:
+            allowed_lg = {"enabled", "model", "default_action"}
+            unknown_lg = set(lg.keys()) - allowed_lg
+            if unknown_lg:
+                errors.append(
+                    f"unknown llama_guard keys: {sorted(unknown_lg)}; "
+                    f"allowed: {sorted(allowed_lg)}"
+                )
+            enabled = lg.get("enabled")
+            if enabled is not None and not isinstance(enabled, bool):
+                errors.append(
+                    f"llama_guard.enabled must be a boolean, got {type(enabled).__name__}"
+                )
+            model = lg.get("model")
+            if model is not None and (not isinstance(model, str) or not model.strip()):
+                errors.append("llama_guard.model must be a non-empty string when set")
+            action = lg.get("default_action")
+            if action is not None:
+                if not isinstance(action, str):
+                    errors.append("llama_guard.default_action must be a string")
+                elif action.lower() not in _VALID_ACTIONS:
+                    errors.append(
+                        f"llama_guard.default_action={action!r}; "
+                        f"valid actions: {sorted(_VALID_ACTIONS)}"
+                    )
+
+    # Presidio block (Phase 22). Shape:
+    #   "presidio": {
+    #       "enabled": bool,
+    #       "min_score": float (0..1),
+    #       "entities": ["PERSON", "LOCATION", ...]
+    #   }
+    presidio = raw.get("presidio")
+    if presidio is not None:
+        if not isinstance(presidio, Mapping):
+            errors.append(f"presidio must be a mapping, got {type(presidio).__name__}")
+        else:
+            allowed = {"enabled", "min_score", "entities"}
+            unknown = set(presidio.keys()) - allowed
+            if unknown:
+                errors.append(
+                    f"unknown presidio keys: {sorted(unknown)}; allowed: {sorted(allowed)}"
+                )
+            enabled = presidio.get("enabled")
+            if enabled is not None and not isinstance(enabled, bool):
+                errors.append(f"presidio.enabled must be a boolean, got {type(enabled).__name__}")
+            min_score = presidio.get("min_score")
+            if min_score is not None:
+                if not isinstance(min_score, int | float) or isinstance(min_score, bool):
+                    errors.append("presidio.min_score must be a number between 0 and 1")
+                elif not 0.0 <= float(min_score) <= 1.0:
+                    errors.append(f"presidio.min_score must be between 0 and 1, got {min_score}")
+            entities = presidio.get("entities")
+            if entities is not None and (
+                not isinstance(entities, list)
+                or not all(isinstance(e, str) and e for e in entities)
+            ):
+                errors.append("presidio.entities must be a non-empty list of strings")
+
     disabled = raw.get("disabled_rules", [])
-    if not isinstance(disabled, list) or not all(
-        isinstance(r, str) for r in disabled
-    ):
+    if not isinstance(disabled, list) or not all(isinstance(r, str) for r in disabled):
         errors.append("disabled_rules must be a list of strings")
 
     actions = raw.get("rule_actions", {})
@@ -119,8 +196,7 @@ def validate_policy(raw: Mapping[str, Any] | None) -> list[str]:
                 continue
             if action.lower() not in _VALID_ACTIONS:
                 errors.append(
-                    f"rule_actions[{rule!r}] = {action!r}; "
-                    f"valid actions: {sorted(_VALID_ACTIONS)}"
+                    f"rule_actions[{rule!r}] = {action!r}; valid actions: {sorted(_VALID_ACTIONS)}"
                 )
 
     return errors

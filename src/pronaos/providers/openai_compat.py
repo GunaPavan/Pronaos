@@ -129,15 +129,47 @@ class OpenAICompatibleProvider(Provider):
             return self._chat_streaming(req)
         return await self._chat_non_streaming(req)
 
-    def cost_cents(self, prompt_tokens: int, completion_tokens: int, model: str) -> int:
-        """Return call cost in hundredths of a cent; ``0`` for unknown models."""
+    def cost_cents(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        model: str,
+        *,
+        cache_creation_tokens: int = 0,
+        cache_read_tokens: int = 0,
+    ) -> int:
+        """Return call cost in hundredths of a cent; ``0`` for unknown models.
+
+        Phase 35: OpenAI's auto-prompt-caching (≥1024-token prefixes on
+        supported models) gives a 50% discount on cached tokens. Pricing:
+
+        - Regular (non-cached) input: 1.0x input_hcents_per_mtok
+        - Cache reads (auto-detected by OpenAI): 0.5x — the FinOps win
+        - Output: unchanged
+
+        ``cache_creation_tokens`` is unused for OpenAI — the upstream
+        doesn't bill cache writes separately (caching is "free to
+        enable" unlike Anthropic's 1.25x write premium). We accept the
+        kwarg to satisfy the Provider ABC.
+
+        Other OpenAI-compat providers (Groq, DeepSeek, Together, etc.)
+        don't expose a cached_tokens field in their usage blocks, so
+        ``cache_read_tokens=0`` is the common path and pricing reduces
+        to the legacy input+output sum.
+        """
+        del cache_creation_tokens  # OpenAI: no cache-write premium
         bare_model = _strip_prefix(model, self._provider_key)
         price = self._pricing.get(bare_model)
         if price is None:
             return 0
+        # prompt_tokens here is the NON-cached portion (adapter normalises
+        # in _chunk_from_response / _chat_streaming). Cache reads are
+        # priced at 0.5x via integer math: tokens * rate / 1M * 0.5 =
+        # tokens * rate / 2_000_000.
         input_cost = prompt_tokens * price.input_hcents_per_mtok // 1_000_000
+        cache_read_cost = cache_read_tokens * price.input_hcents_per_mtok // 2_000_000
         output_cost = completion_tokens * price.output_hcents_per_mtok // 1_000_000
-        return input_cost + output_cost
+        return input_cost + cache_read_cost + output_cost
 
     # ---- Non-streaming --------------------------------------------------------
 
@@ -184,6 +216,20 @@ class OpenAICompatibleProvider(Provider):
 
         prompt_tokens = 0
         completion_tokens = 0
+        # Phase 35: OpenAI prompt cache. Auto-cached prefixes (≥1024 tokens)
+        # are reported in usage.prompt_tokens_details.cached_tokens. The
+        # streaming chunk that carries usage shows up at the end of the
+        # stream (when stream_options.include_usage is set; otherwise the
+        # field stays 0 and we report no cache savings — same as if the
+        # request was below the caching threshold).
+        cache_read_tokens = 0
+        # Phase 56: reasoning-token surfacing for OpenAI o1/o3 + DeepSeek R1.
+        # Reasoning count arrives in the final usage block (same chunk
+        # as totals); CoT text from DeepSeek arrives as
+        # delta.reasoning_content fragments interleaved with content
+        # deltas — accumulate per-stream.
+        reasoning_tokens = 0
+        reasoning_content_buf: list[str] = []
         finish_reason: str | None = None
         content_buf: list[str] = []
         # OpenAI streaming-tools encode each tool call as a series of
@@ -214,6 +260,17 @@ class OpenAICompatibleProvider(Provider):
                                 content_delta=text,
                                 finish_reason=None,
                             )
+                        # Phase 56: DeepSeek R1 streams CoT as
+                        # delta.reasoning_content fragments INTERLEAVED
+                        # with normal content deltas. Accumulate here;
+                        # the terminal chunk carries the assembled text.
+                        # We deliberately don't emit reasoning content
+                        # as content_delta — clients SSE-decoding the
+                        # response expect content_delta to be the user-
+                        # visible text only.
+                        rc_frag = delta.get("reasoning_content")
+                        if isinstance(rc_frag, str) and rc_frag:
+                            reasoning_content_buf.append(rc_frag)
                         # Merge any tool_calls fragments into the accumulator.
                         tc_fragments = delta.get("tool_calls") or []
                         for frag in tc_fragments:
@@ -224,6 +281,19 @@ class OpenAICompatibleProvider(Provider):
                     if usage:
                         prompt_tokens = usage.get("prompt_tokens", prompt_tokens) or 0
                         completion_tokens = usage.get("completion_tokens", completion_tokens) or 0
+                        # Phase 35: extract OpenAI's cached_tokens (when
+                        # the upstream auto-cached part of the prompt).
+                        details = usage.get("prompt_tokens_details") or {}
+                        if isinstance(details, dict):
+                            cache_read_tokens = int(details.get("cached_tokens") or 0)
+                        # Phase 56: extract reasoning_tokens from
+                        # completion_tokens_details. Already INCLUDED in
+                        # completion_tokens — no cost-math change.
+                        comp_details = usage.get("completion_tokens_details") or {}
+                        if isinstance(comp_details, dict):
+                            reasoning_tokens = int(
+                                comp_details.get("reasoning_tokens") or 0
+                            )
         except httpx.TimeoutException as e:
             raise UpstreamTimeoutError(f"{self._provider_key}: upstream timeout") from e
         except httpx.RequestError as e:
@@ -241,16 +311,31 @@ class OpenAICompatibleProvider(Provider):
         assembled_tool_calls: list[dict[str, Any]] | None = None
         if accumulated_tool_calls:
             assembled_tool_calls = [
-                accumulated_tool_calls[i]
-                for i in sorted(accumulated_tool_calls.keys())
+                accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())
             ]
+
+        # Phase 35: normalize prompt_tokens to the NON-cached portion so
+        # the chat handler's math is uniform across providers. OpenAI
+        # reports the total prompt_tokens (including cached); Anthropic
+        # reports the non-cached portion natively. Subtracting here makes
+        # both adapters speak the same chunk shape downstream.
+        non_cached_prompt = max(0, prompt_tokens - cache_read_tokens)
+
+        # Phase 56: assemble accumulated reasoning_content (DeepSeek R1).
+        reasoning_content = (
+            "".join(reasoning_content_buf) if reasoning_content_buf else None
+        )
 
         yield ChatCompletionChunk(
             content_delta="",
             finish_reason=finish_reason or ("tool_calls" if assembled_tool_calls else "stop"),
-            prompt_tokens=prompt_tokens,
+            prompt_tokens=non_cached_prompt,
             completion_tokens=completion_tokens,
             tool_calls=assembled_tool_calls,
+            cache_creation_tokens=0,  # OpenAI doesn't expose a cache-write counter
+            cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
+            reasoning_content=reasoning_content,
         )
 
     # ---- Helpers --------------------------------------------------------------
@@ -284,6 +369,13 @@ class OpenAICompatibleProvider(Provider):
             body["tools"] = req.tools
         if req.tool_choice is not None:
             body["tool_choice"] = req.tool_choice
+        if req.response_format is not None:
+            # Phase 39 — OpenAI structured outputs. Forward verbatim;
+            # providers that don't recognise the field tend to either
+            # ignore it gracefully (Groq, Together) or reject the call
+            # at validation time. We document the latter as a known
+            # incompatibility per provider in the catalog.
+            body["response_format"] = req.response_format
         if req.extra:
             for k, v in req.extra.items():
                 body.setdefault(k, v)
@@ -299,13 +391,57 @@ class OpenAICompatibleProvider(Provider):
         # OpenAI-compat provider — no translation needed. We surface it
         # on the chunk so the chat handler can include it in the response.
         tool_calls = message.get("tool_calls")
+
+        # Phase 35: OpenAI prompt cache. Auto-cached prefixes (≥1024
+        # tokens on supported models) are reported in
+        # usage.prompt_tokens_details.cached_tokens. Non-OpenAI upstreams
+        # (Groq, DeepSeek, Together, Fireworks, Perplexity, xAI, Cerebras,
+        # Mistral, OpenRouter) leave the nested field absent — extraction
+        # falls through to 0 with no behavioural change.
+        details = usage.get("prompt_tokens_details")
+        cache_read_tokens = 0
+        if isinstance(details, dict):
+            cache_read_tokens = int(details.get("cached_tokens") or 0)
+        # Normalise prompt_tokens to the NON-cached portion so the chat
+        # handler treats every provider uniformly. Anthropic already
+        # excludes cache fields from its input_tokens; OpenAI includes
+        # them — subtract here.
+        raw_prompt_tokens = usage.get("prompt_tokens")
+        non_cached_prompt = (
+            max(0, int(raw_prompt_tokens) - cache_read_tokens)
+            if raw_prompt_tokens is not None
+            else None
+        )
+
+        # Phase 56: reasoning tokens (OpenAI o1/o3, DeepSeek R1, anyone
+        # following the OpenAI usage.completion_tokens_details shape).
+        # Already INCLUDED in completion_tokens — cost math unchanged.
+        # Non-reasoning models leave the nested field absent → 0.
+        completion_details = usage.get("completion_tokens_details")
+        reasoning_tokens = 0
+        if isinstance(completion_details, dict):
+            reasoning_tokens = int(completion_details.get("reasoning_tokens") or 0)
+        # DeepSeek R1 also ships the CoT text as message.reasoning_content.
+        # OpenAI o-series does NOT expose the CoT text (intentional —
+        # only the count). Preserve whichever the upstream sends.
+        raw_reasoning_content = message.get("reasoning_content")
+        reasoning_content = (
+            raw_reasoning_content
+            if isinstance(raw_reasoning_content, str) and raw_reasoning_content
+            else None
+        )
+
         return ChatCompletionChunk(
             content_delta=message.get("content") or "",
             finish_reason=finish,
-            prompt_tokens=usage.get("prompt_tokens"),
+            prompt_tokens=non_cached_prompt,
             completion_tokens=usage.get("completion_tokens"),
             tool_calls=tool_calls if tool_calls else None,
             raw=data,
+            cache_creation_tokens=0,  # OpenAI doesn't expose a cache-write counter
+            cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
+            reasoning_content=reasoning_content,
         )
 
     def _raise_for_status(self, resp: httpx.Response) -> None:
@@ -345,9 +481,7 @@ class OpenAICompatibleProvider(Provider):
 # --------------------------------------------------------------------------- #
 
 
-def _merge_tool_call_fragment(
-    acc: dict[int, dict[str, Any]], frag: dict[str, Any]
-) -> None:
+def _merge_tool_call_fragment(acc: dict[int, dict[str, Any]], frag: dict[str, Any]) -> None:
     """Merge one ``delta.tool_calls[i]`` fragment into the accumulator.
 
     OpenAI's streaming protocol for tools sends each tool call as a series

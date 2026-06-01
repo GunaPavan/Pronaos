@@ -94,9 +94,7 @@ def estimate_tokens(
         prompt_tokens += _estimate_text(content)
 
     completion_budget = (
-        max_completion_tokens
-        if max_completion_tokens is not None
-        else DEFAULT_MAX_COMPLETION
+        max_completion_tokens if max_completion_tokens is not None else DEFAULT_MAX_COMPLETION
     )
     return prompt_tokens + completion_budget
 
@@ -117,7 +115,7 @@ def _estimate_text(text: str) -> int:
     words = text.split()
     word_tokens = int(len(words) * WORDS_TO_TOKENS_FACTOR)
     # Common punctuation is usually its own token in BPE encodings.
-    punct_tokens = sum(text.count(c) for c in ",.!?\";:")
+    punct_tokens = sum(text.count(c) for c in ',.!?";:')
     return max(1, word_tokens + punct_tokens)
 
 

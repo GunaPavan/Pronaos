@@ -50,9 +50,9 @@ class CircuitState(StrEnum):
     """Three-state breaker. Values are stable strings so they survive log
     serialisation / Prometheus label encoding without translation."""
 
-    CLOSED = "closed"          # normal — calls allowed, failures tracked
-    OPEN = "open"              # tripped — calls denied until recovery window
-    HALF_OPEN = "half_open"    # probing — one call allowed to test recovery
+    CLOSED = "closed"  # normal — calls allowed, failures tracked
+    OPEN = "open"  # tripped — calls denied until recovery window
+    HALF_OPEN = "half_open"  # probing — one call allowed to test recovery
 
 
 # Default tuning. Picked for the LLM-gateway workload:

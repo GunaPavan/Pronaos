@@ -34,14 +34,22 @@ from pronaos.providers.anthropic import ANTHROPIC_API_URL
 def _otel_exporter() -> InMemorySpanExporter:
     """Install a real TracerProvider once per session.
 
-    Subsequent ``trace.set_tracer_provider`` calls are silently ignored by
-    OTEL, so the per-test pattern is "reuse the provider, clear the
-    exporter." That keeps the test cost near zero and avoids the
-    one-shot-global trap."""
+    ``trace.set_tracer_provider`` is a one-shot global — other test
+    modules may have installed their own provider before this fixture
+    runs. So instead of fighting for ownership, we ADD our exporter
+    as another span processor to whichever provider is live. If no
+    real provider exists yet, install one.
+
+    Either way, every span produced by the gateway during this test
+    session lands in our exporter."""
     exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
+    current = trace.get_tracer_provider()
+    if isinstance(current, TracerProvider):
+        current.add_span_processor(SimpleSpanProcessor(exporter))
+    else:
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
     return exporter
 
 
@@ -110,9 +118,14 @@ async def test_provider_call_span_carries_tokens_and_cost(
     auth_setup,  # type: ignore[no-untyped-def]
     spans: InMemorySpanExporter,
 ) -> None:
-    """The ``pronaos.provider.call`` span must carry provider, model,
-    tokens, and cost as attributes — that's the FinOps pivot story when
-    inspecting a trace for an expensive request."""
+    """The provider-call span must carry provider, model, tokens, and cost
+    as attributes — that's the FinOps pivot story when inspecting a trace
+    for an expensive request.
+
+    Phase 43 renamed the span to follow the OTel GenAI spec
+    (``chat {model}``); the pronaos.* attributes stay alongside the new
+    gen_ai.* ones for backward compatibility with existing dashboards.
+    """
     respx.post(ANTHROPIC_API_URL).mock(
         return_value=httpx.Response(
             200,
@@ -138,9 +151,19 @@ async def test_provider_call_span_carries_tokens_and_cost(
     assert r.status_code == 200, r.text
 
     finished = spans.get_finished_spans()
-    provider_spans = [s for s in finished if s.name == "pronaos.provider.call"]
-    assert provider_spans, "no pronaos.provider.call span emitted"
-    attrs = provider_spans[0].attributes
+    # Find the span that has pronaos.provider set — that's our chat-call
+    # span regardless of whether it follows the old or new name convention.
+    provider_spans = [
+        s
+        for s in finished
+        if s.attributes and dict(s.attributes).get("pronaos.provider") == "anthropic"
+    ]
+    assert provider_spans, "no provider-call span emitted"
+    span = provider_spans[0]
+    # New name follows the OTel GenAI convention: "chat {model}".
+    assert span.name == "chat anthropic/claude-opus-4-7"
+    attrs = dict(span.attributes or {})
+    # Pronaos-custom attributes (back-compat for existing Grafana panels).
     assert attrs["pronaos.provider"] == "anthropic"
     assert attrs["pronaos.model"] == "anthropic/claude-opus-4-7"
     assert attrs["pronaos.prompt_tokens"] == 17
@@ -149,6 +172,12 @@ async def test_provider_call_span_carries_tokens_and_cost(
     # was set to a positive number, not that it equals any specific value.
     assert isinstance(attrs["pronaos.cost_hcents"], int)
     assert attrs["pronaos.cost_hcents"] > 0
+    # Phase 43 — spec-compliant gen_ai.* attributes are ALSO present.
+    assert attrs["gen_ai.operation.name"] == "chat"
+    assert attrs["gen_ai.system"] == "anthropic"
+    assert attrs["gen_ai.request.model"] == "anthropic/claude-opus-4-7"
+    assert attrs["gen_ai.usage.input_tokens"] == 17
+    assert attrs["gen_ai.usage.output_tokens"] == 9
 
 
 # NOTE: A test for the ``no_response`` error attribute would be valuable

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool, StaticPool
 
 from pronaos.config import Settings
 
@@ -30,8 +31,32 @@ def create_engine(settings: Settings) -> AsyncEngine:
     }
     if url.startswith("sqlite"):
         # aiosqlite is file-scoped — pool_pre_ping and common pool tuning are
-        # meaningless. Keep defaults simple.
+        # meaningless.
         kwargs["connect_args"] = {"check_same_thread": False}
+        if ":memory:" in url:
+            # In-memory SQLite: each new connection gets its OWN empty
+            # database. NullPool would mean every request opens a fresh
+            # empty schema. StaticPool keeps ONE connection shared across
+            # all sessions — the test-suite pattern.
+            kwargs["poolclass"] = StaticPool
+        else:
+            # File-backed SQLite: use NullPool to open a fresh aiosqlite
+            # connection per checkout and close it on release. Without this,
+            # SQLAlchemy's default AsyncAdaptedQueuePool keeps connections
+            # alive across requests. SQLite's transaction snapshot model
+            # means a pooled connection that previously did a SELECT can
+            # return STALE rows on subsequent SELECTs (the deferred
+            # transaction's snapshot lags behind committed writes from
+            # other connections). Reproducer: PUT a row → immediate GET on
+            # the same client returns the pre-PUT value, then a SECOND GET
+            # returns the post-PUT value (the pool handed out a different
+            # connection on the third call). NullPool eliminates that
+            # staleness window at the cost of one fresh connection per
+            # request — fine for file-backed SQLite (no real connection
+            # overhead) and the only safe default given the snapshot
+            # semantics. Postgres/asyncpg doesn't have this issue
+            # (MVCC + proper isolation), so it keeps the default pool below.
+            kwargs["poolclass"] = NullPool
     else:
         # Postgres (or other) — conservative pool defaults; overridable by env
         # in later phases.

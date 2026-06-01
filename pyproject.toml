@@ -53,6 +53,25 @@ dependencies = [
     # fixtures; it's already a transitive dep through several other
     # packages but pinning it here makes the dependency explicit.
     "pyyaml>=6.0",
+    # Phase 39 — structured output validation. ``jsonschema`` is the
+    # de-facto standard validator for JSON Schema drafts 4 through 2020-12;
+    # we use it to validate LLM responses against client-supplied schemas
+    # and to format error messages for the corrective retry prompt.
+    "jsonschema>=4.23",
+    # Phase 42 — AWS Bedrock native adapter. ``botocore`` is AWS's own
+    # low-level SDK; we use ``botocore.auth.SigV4Auth`` for request
+    # signing (the same code path boto3 uses, so signatures are
+    # byte-identical to what the AWS CLI / boto3 SDK produce). We do
+    # NOT use boto3's high-level clients — we issue the HTTP via
+    # httpx so the gateway's existing async + circuit-breaker +
+    # observability stack still wraps every call.
+    "botocore>=1.35",
+    # Phase 48 — native MCP (Model Context Protocol) server adapter.
+    # Exposes Pronaos as an MCP server over SSE so MCP-speaking clients
+    # (Claude Code, IDE tools, Anthropic's own apps) target the gateway
+    # directly with all of Pronaos's auth/quota/audit/routing applied
+    # automatically. Uses the official Anthropic-maintained Python SDK.
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -67,11 +86,21 @@ dev = [
     "fakeredis[lua]>=2.26",
     "pre-commit>=4.0",
     "types-redis",
+    "types-jsonschema",
 ]
 
 [project.scripts]
 pronaos = "pronaos.main:cli"
 pronaos-cli = "pronaos.cli:main"
+# Phase 50 — MCP stdio bridge. Claude Code / Anthropic Desktop /
+# Cursor / Windsurf / etc. all spawn MCP servers as local
+# subprocesses; this entry point IS that subprocess. After ``pip
+# install pronaos`` operators run e.g.::
+#
+#     claude mcp add pronaos -- pronaos-mcp-proxy \
+#         --gateway-url http://127.0.0.1:8080 \
+#         --api-key-file ~/.config/pronaos/api-key
+pronaos-mcp-proxy = "pronaos.mcp:_stdio_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pronaos"]
@@ -123,6 +152,42 @@ disallow_untyped_defs = false
 # loader. The loader's own annotations are explicit enough.
 [[tool.mypy.overrides]]
 module = ["yaml"]
+ignore_missing_imports = true
+
+# botocore ships without a py.typed marker. AWS hasn't shipped first-party
+# stubs for the low-level SDK (only boto3-stubs covers the high-level
+# clients, which we don't use). The adapter calls only the three
+# documented public classes (SigV4Auth, AWSRequest, Credentials) — its
+# own annotations cover the public surface.
+[[tool.mypy.overrides]]
+module = ["botocore.*"]
+ignore_missing_imports = true
+
+# Phase 48 — the official MCP Python SDK ships ``py.typed`` but its
+# decorators (``Server.list_tools()``, ``Server.call_tool()``) erase
+# the wrapped function's type signature. The adapter wraps those
+# decorated handlers in its own typed surface (PronaosMcpServer
+# + _forward) so the public side stays strict; line-level
+# ``# type: ignore[no-untyped-call,untyped-decorator]`` comments in
+# server.py keep the SDK-edge noise out of strict mypy without
+# weakening Pronaos's own type coverage. The module override below
+# is for the rare cases the SDK's own ``py.typed`` slips a Pyrsia-like
+# unparametrized generic into a public call.
+[[tool.mypy.overrides]]
+module = ["mcp.server", "mcp.server.sse"]
+disallow_untyped_decorators = false
+disallow_untyped_calls = false
+
+# Presidio is an OPTIONAL runtime dependency. ``guardrails/presidio.py``
+# imports ``presidio_analyzer`` inside a try/except ImportError, gates
+# the AnalyzerEngine behind a sentinel, and degrades gracefully when
+# the dep is absent (see ``PresidioPIIDetector._get_analyzer``). Adding
+# the (heavy) dep to pyproject.toml would make every install pull in
+# spaCy + en_core_web_lg; we'd rather keep the option to skip. mypy
+# doesn't need to find its stubs for the rest of the source tree to
+# typecheck strictly.
+[[tool.mypy.overrides]]
+module = ["presidio_analyzer"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

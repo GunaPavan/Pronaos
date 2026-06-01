@@ -106,6 +106,17 @@ async def auth_setup(
     # model="auto" → groq/* in tests. Tests that mock Groq with respx
     # benefit from this; tests that don't touch Groq are unaffected.
     monkeypatch.setenv("GROQ_API_KEY", "test-key-for-tests")
+    # Phase 42 — AWS credentials, so the registry can build the
+    # ``bedrock`` provider for tests that exercise the Bedrock adapter.
+    # The values are the AWS-published example creds — safe to commit
+    # and deliberately useless for hitting real AWS, just enough to
+    # make SigV4Auth produce a well-formed signed request.
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv(
+        "AWS_SECRET_ACCESS_KEY",
+        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    )
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
     get_settings.cache_clear()
     settings = get_settings()
 
