@@ -87,6 +87,7 @@ dev = [
     "pre-commit>=4.0",
     "types-redis",
     "types-jsonschema",
+    "scipy-stubs",
 ]
 
 [project.scripts]
