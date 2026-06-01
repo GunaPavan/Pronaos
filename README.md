@@ -250,4 +250,6 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system shape and the "what
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+Apache 2.0 — see [`LICENSE`](LICENSE).
+
+Copyright 2026 Gunaputra Nagendra Pavan Yedida
