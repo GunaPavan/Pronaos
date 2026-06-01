@@ -7,12 +7,12 @@
 ## 1. Detect
 
 Alerts that fire:
-- `pronaos_cost_cents_per_minute` exceeds 2× rolling 24h baseline for 5 consecutive minutes
+- `rate(pronaos_provider_cost_hcents_total[5m])` exceeds 2× rolling 24h baseline for 5 consecutive minutes
 - Any tenant crosses 80% of monthly budget before day 25 of the cycle
 
 ## 2. Identify the blast radius
 
-On the `Pronaos / Cost` Grafana dashboard, drill down by:
+On the **Pronaos — FinOps** Grafana dashboard, drill down by:
 1. Tenant → team → API key
 2. Model and provider
 3. Average tokens per request (sudden inflation suggests runaway prompt or infinite loop)
@@ -28,7 +28,7 @@ Pick the least-disruptive stop:
 | Cost-tier rotation   | `pronaos-cli team set-routing-strategy <team-id> --strategy cheapest` + `set-allowed-models 'groq/*'` — auto-routes `model="auto"` traffic to the cheapest eligible model without revoking keys (Phase 21) |
 | Runaway model        | `pronaos-cli team set-allowed-models <team-id> --models <safer-list>` — removes the offending model from the team's allowlist |
 | Single tenant        | Set `routing_strategy=cheapest` + lower budgets on every team in the tenant |
-| Global anomaly       | Flip the `pronaos.emergency_spend_cap` flag                                  |
+| Global anomaly       | Lower `monthly_cost_hcents_budget` on every team in the affected tenant, or set `routing_strategy=cheapest` + a restricted allowlist gateway-wide |
 
 ## 4. Communicate
 
@@ -47,4 +47,4 @@ Common causes:
 
 - File incident report.
 - If root cause was a gateway gap (e.g. missing cost-per-request cap on a route), add it to the default policy and ship.
-- Update the tenant's `max_cost_per_request_cents` setting if unset.
+- If the team had no monthly cost cap, set one via `pronaos-cli team set-budget <team-id> --cost-hcents <limit>` so future spikes are bounded automatically.

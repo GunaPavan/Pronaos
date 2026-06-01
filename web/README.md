@@ -1,20 +1,20 @@
 # Pronaos admin UI
 
-Next.js 15 (App Router) + TypeScript + Tailwind + shadcn/ui frontend for the
-Pronaos gateway. This is **Phase 62 — UI Foundation** — the auth shell, app
-layout, and connectivity dashboard. Subsequent phases (63→71) add the
-content modules (identity, FinOps, playground, routing, compliance,
-reliability, async, onboarding).
+Next.js 15.5.18 (App Router) + TypeScript + Tailwind + shadcn/ui frontend
+for the Pronaos gateway. Phases 62–71 shipped the complete 17-page admin
+console: authentication shell, dashboard, identity management, FinOps,
+playground (chat + embeddings + rerank), routing console, guardrails + audit
+log, provider reliability, batch jobs, webhooks, and settings.
 
 ## Stack
 
 | Layer | Choice |
 | --- | --- |
-| Framework | Next.js 15.5 (App Router, RSC where appropriate) |
+| Framework | Next.js 15.5.18 (App Router, RSC where appropriate) |
 | Language | TypeScript 5.7 with `strict` + `noUncheckedIndexedAccess` |
 | Styling | Tailwind CSS 3.4 + shadcn/ui (new-york preset) |
 | Theme | next-themes (class strategy, light/dark/system) |
-| Forms | React Hook Form + Zod (planned for Phase 63) |
+| Forms | Zod validation on all API responses; inline form state with React controlled inputs |
 | Data | Custom typed fetch wrapper + Zod validation |
 | Auth | API-key bearer in localStorage (Phase 62 trade-off — see below) |
 | E2E tests | Playwright 1.50 (Chromium) |
@@ -68,14 +68,31 @@ web/
 ├── src/
 │   ├── app/                # Next.js App Router routes
 │   │   ├── (auth)/login/   # Unauthenticated route (login form)
-│   │   ├── (app)/          # Authenticated route group
-│   │   │   ├── layout.tsx  # AppShell (top nav + side nav)
-│   │   │   └── page.tsx    # /  — dashboard landing
+│   │   ├── (app)/          # Authenticated route group (17 pages)
+│   │   │   ├── layout.tsx         # AppShell (top nav + side nav)
+│   │   │   ├── page.tsx           # /  — dashboard (summary tiles + spend chart)
+│   │   │   ├── tenants/           # Tenant list + create + delete
+│   │   │   ├── teams/             # Team list filtered by tenant + create
+│   │   │   ├── keys/              # API key list + generate-once modal + revoke
+│   │   │   ├── usage/             # Usage chart by day + table + filters
+│   │   │   │   └── budgets/       # Budget progress bars + inline editor
+│   │   │   ├── playground/        # Chat + Embeddings + Rerank tabs
+│   │   │   ├── routing/           # Strategy cards + score tables + allowlist
+│   │   │   │   ├── observations/  # Prompt-cache hit rates + reasoning ratios
+│   │   │   │   └── ab-tests/      # A/B test config + Welch's t-test results
+│   │   │   ├── guardrails/        # Policy editor
+│   │   │   │   └── audit/         # Hash-chain log viewer + verify CTA
+│   │   │   ├── providers/         # Circuit-breaker state table + reset
+│   │   │   ├── doctor/            # Health-gate results grid
+│   │   │   ├── batches/           # Batch list
+│   │   │   │   └── [id]/          # Batch detail + cancel
+│   │   │   ├── webhooks/          # Config editor + test-ping
+│   │   │   └── settings/          # Gateway config + OIDC subject editor
 │   │   ├── layout.tsx      # Root layout (providers + theme + toast)
 │   │   └── globals.css     # Tailwind base + CSS variables
 │   ├── components/
 │   │   ├── layout/         # AppShell, TopNav, SideNav
-│   │   ├── ui/             # shadcn/ui primitives (Button, Card, Input, Label)
+│   │   ├── ui/             # shadcn/ui primitives (Button, Card, Input, Label, Badge, Progress, Textarea)
 │   │   ├── error-boundary.tsx
 │   │   ├── theme-provider.tsx
 │   │   └── theme-toggle.tsx

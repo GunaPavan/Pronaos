@@ -39,7 +39,7 @@ In Grafana, the `Pronaos / Quotas` panel shows distinct rates:
 Identify which gate fired:
 
 ```bash
-pronaos-cli team usage <team-id>
+pronaos-cli team chargeback <team-id>
 ```
 
 Output shows used / budget / period_resets_at. Three cases:

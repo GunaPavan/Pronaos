@@ -390,7 +390,7 @@ provider/model from the team's allowlist using the configured routing
 strategy. Resolution is pure in-memory — no I/O, sub-millisecond on
 the hot path.
 
-**Four strategies today:**
+**Seven strategies today:**
 
 | Strategy | Score function | When to use |
 | --- | --- | --- |
@@ -398,6 +398,9 @@ the hot path.
 | `fastest` | `typical_p50_ms` from the per-provider catalog field | Latency-sensitive workloads (live chat, agent loops) |
 | `balanced` | Normalised cost + normalised latency on a 0..1 scale, summed across the pool | Mixed workloads where neither extreme dominates |
 | `quality-aware-cheapest` (Phase 24) | Two-stage: drop models whose stored eval score < `team.quality_threshold`, then `cheapest` over what remains. Falls back to plain `cheapest` if no eval scores are stored. | Workloads where you've run eval and have **measured** quality data per model |
+| `tool-use-aware-cheapest` (Phase 46) | Same two-stage shape using `team.tool_use_scores` + `team.tool_use_threshold`; filter only fires on requests that carry tools — tool-less requests fall back to `cheapest` | Agentic workloads where tool accuracy varies significantly across models |
+| `prompt-cache-aware-cheapest` (Phase 47) | Discounts each candidate's input price by its runtime-observed prompt-cache hit rate (Anthropic 0.10×, OpenAI 0.50×, others 1.0×) before scoring; observations live in Redis via `PromptCacheObserver` | Long-document / repeated-system-prompt workloads where Anthropic or OpenAI prompt-cache is active |
+| `reasoning-aware-cheapest` (Phase 57) | Multiplies each candidate's output price by `1 + observed_reasoning_ratio`; optional `team.reasoning_aware_max_ratio` cap excludes reasoning-heavy models from the pool | Workloads that want to avoid runaway thinking-token spend on reasoning-capable models |
 
 **Eligibility filter (runs before scoring):** drops candidates that
 can't satisfy the request's capability needs — `requires_tools`,
@@ -422,7 +425,7 @@ GET /v1/admin/team/{team_id}/routing-strategy
 
 - `X-Pronaos-Routed-Model: <provider/model>` — the concrete model the
   scorer picked (the rest of the pipeline used this, not `auto`)
-- `X-Pronaos-Routing-Strategy: <cheapest|fastest|balanced|quality-aware-cheapest>`
+- `X-Pronaos-Routing-Strategy: <cheapest|fastest|balanced|quality-aware-cheapest|tool-use-aware-cheapest|prompt-cache-aware-cheapest|reasoning-aware-cheapest>`
   — which strategy produced the pick
 - `X-Pronaos-Quality-Score: <0.000-1.000>` (Phase 24) — the stored
   eval score for the selected model, when one is on record. Absent

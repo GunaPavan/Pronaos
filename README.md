@@ -8,7 +8,7 @@ Pronaos sits between your applications and **14 LLM providers** (Anthropic nativ
 
 ## What this gateway can prove about itself
 
-Forty-five empirical claims, each backed by a reproducible script. **Full write-ups with terminal output, methodology, and falsification conditions live in [`CLAIMS.md`](CLAIMS.md).**
+Fifty-eight empirical claims, each backed by a reproducible script. **Full write-ups with terminal output, methodology, and falsification conditions live in [`CLAIMS.md`](CLAIMS.md).**
 
 | # | Claim | Headline | Reproduce |
 | --- | --- | ---: | --- |
@@ -114,7 +114,7 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | Area | Capability | Status |
 | --- | --- | --- |
 | Universal API | OpenAI-compatible `/v1/chat/completions`, streaming SSE, **`/v1/embeddings`** + **`/v1/rerank`** — both cache-backed | ✅ shipped |
-| Provider support | 13 chat providers (Anthropic native + **AWS Bedrock native** with SigV4 for Claude/Llama/Nova/Mistral-on-Bedrock + 11 via OpenAI-compat) + 5 embedding providers (OpenAI / Mistral / Cohere / Voyage / local) + 2 rerank providers (Cohere / Voyage) | ✅ shipped |
+| Provider support | 14 chat providers (Anthropic native + **AWS Bedrock native** with SigV4 for Claude/Llama/Nova/Mistral-on-Bedrock + **Google Vertex AI native** with GCP service-account JWT auth for Gemini and Claude-on-Vertex + 11 via OpenAI-compat) + 5 embedding providers (OpenAI / Mistral / Cohere / Voyage / local) + 2 rerank providers (Cohere / Voyage) | ✅ shipped |
 | Routing & failover | Prefix-based selection; automatic retry across configured chain | ✅ shipped |
 | **Circuit breaker** | Per-provider CLOSED/OPEN/HALF_OPEN; auto-skip OPEN providers; metrics + Grafana panels. **Redis-backed registry** for multi-replica convergence (Phase 25, opt-in via `PRONAOS_CIRCUIT_BREAKER_DISTRIBUTED=true`); per-process by default | ✅ shipped |
 | **Tool / function calling** | OpenAI schema on input; bidirectional ↔ Anthropic translation (tool defs, `tool_choice`, `tool_use`) | ✅ shipped |
@@ -166,7 +166,7 @@ Auto-generated from FastAPI route definitions — try the chat endpoint at `http
 | **BFCL tool-use benchmark** | Berkeley Function-Calling Leaderboard-style scorer + 12-case curated golden set (simple / selection / arguments / relevance / parallel). Exact function-name match + AST-equivalent argument comparison (int/float coercion, key-order independent, nested dicts recursive). Per-case typed failure reasons ("wrong_function" / "wrong_args" / "missing_call" / "unexpected_call" / "wrong_call_count"). Live runner aggregates per-model + per-category accuracy; verdict reports the per-model spread. First OSS gateway shipping a runnable BFCL-style benchmark | ✅ shipped |
 | Audit log | Per-tenant hash-chained record; `pronaos-cli audit verify` walks the chain | ✅ shipped |
 | Admin CLI | `pronaos-cli` for tenant / team / key / budget / policy / allowlist / webhook / audit | ✅ shipped |
-| Admin UI | Next.js dashboard for tenants, keys, usage, traces | 🔜 roadmap |
+| Admin UI | Next.js 15.5 app — 17 pages across identity, FinOps, playground, routing, guardrails, reliability, batches, webhooks, and settings; 51 Playwright e2e tests | ✅ shipped |
 | Deploy | Helm chart + Terraform module for one-command production install | 🔜 roadmap |
 
 ---
@@ -205,7 +205,7 @@ cp .env.example .env       # or `Copy-Item .env.example .env` on Windows
 ./tasks.cmd install        # creates .venv and installs deps   (or: make install)
 ./tasks.cmd db-upgrade     # apply Alembic migrations          (or: make db-upgrade)
 ./tasks.cmd dev            # start the gateway on :8080        (or: make dev)
-./tasks.cmd test           # 923 tests total (921 unit + 2 integration)
+./tasks.cmd test           # 1352 pytest tests + 51 Playwright e2e
 ```
 
 Smoke test: `curl -s http://localhost:8080/v1/healthz` → `{"status":"ok","version":"0.1.0"}`.
@@ -247,12 +247,10 @@ Full details in [`scripts/README.md`](scripts/README.md).
 
 Active roadmap items (everything else in the Feature highlights table is shipped):
 
-- **Admin UI** — Next.js dashboard for tenants, keys, usage, traces
 - **Cross-replica HALF_OPEN single-probe lock** — Phase 25 ships shared trip state. Atomic single-probe coordination across replicas (only one replica sends the HALF_OPEN probe, others wait) is a follow-up; today every replica is allowed to probe and the first-to-record wins
 - **Anthropic live verification of streaming tool_use** — unit-tested with realistic SSE bodies; needs a real Anthropic key for full end-to-end demo
 - **Per-team Presidio entity / min_score overrides** — policy validator accepts the keys today, but only the `enabled` shorthand is honoured at request time. Per-entity disabling and per-team thresholds are a small follow-up
 - **Periodic auto-eval-then-store** — Phase 24 ships the data plumbing for quality-aware routing; an opt-in scheduler that re-runs the eval on a cadence and refreshes `quality_scores` is a polish step
-- **Bedrock + Vertex native adapters** — every OpenAI-compat provider works via one adapter; native AWS Bedrock and Google Vertex shapes are separate adapters not yet built
 - **Helm + Terraform** — one-command production deploy
 - **SCIM provisioning** — Phase 26 ships JWT-based OIDC admin auth. SCIM (the protocol for auto-provisioning users from an IdP) is the next layer for IT-team workflows; not yet shipped
 

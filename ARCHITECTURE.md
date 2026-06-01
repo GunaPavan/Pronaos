@@ -8,7 +8,7 @@ for empirical claims about behaviour see [`CLAIMS.md`](CLAIMS.md).
 
 1. **Single governed hop** for every LLM call an organization makes.
 2. **Provider-agnostic** — same OpenAI-shape API regardless of upstream
-   (12 providers wired today; bidirectional translation for Anthropic).
+   (14 providers wired today: Anthropic native, AWS Bedrock native with SigV4, Google Vertex AI native with GCP JWT auth, and 11 via OpenAI-compat; bidirectional translation for Anthropic).
 3. **Observable by default** — every request emits Prometheus metrics
    and OTEL spans; no opt-in.
 4. **Safe by default** — guardrails, quotas, and the model allowlist
@@ -51,7 +51,7 @@ for empirical claims about behaviour see [`CLAIMS.md`](CLAIMS.md).
 - Every request resolves to a `Principal` carrying `tenant_id`,
   `team_id`, `key_id`, scopes, `rps_limit`, monthly token + cost
   budgets, guardrail policy, model allowlist, webhook config.
-- Scopes today: `chat:write`, `admin:usage`.
+- Scopes today: `chat:write`, `admin:usage`, `admin:identity`.
 - **OIDC/SSO** (Phase 26): a parallel Bearer-JWT path runs alongside
   the API-key path. JWTs are verified against the IdP's JWKS
   (signature + `iss`/`aud`/`exp` checks via PyJWT); the `sub` claim
@@ -69,7 +69,7 @@ for empirical claims about behaviour see [`CLAIMS.md`](CLAIMS.md).
   tools, vision, streaming, max_context — sourced from a per-model
   matrix in `providers/catalog.py`) → score with the team's
   `RoutingStrategy` → deterministic tiebreak by fqmn.
-- Six strategies today: `cheapest` (minimise expected cost from
+- Seven strategies today: `cheapest` (minimise expected cost from
   the per-model pricing × estimated tokens), `fastest` (minimise
   `typical_p50_ms` from the catalog), `balanced` (normalised cost
   + normalised latency, summed), `quality-aware-cheapest`
@@ -339,7 +339,7 @@ for empirical claims about behaviour see [`CLAIMS.md`](CLAIMS.md).
   pure-Python on the hot path. `cryptography` is already a
   transitive dep through botocore (needed for SigV4); reusing it
   for RS256 JWT signing adds zero new package bytes.
-- **URL routing**: per-region, per-project, per-publisher::
+- **URL routing**: per-region, per-project, per-publisher —
 
       https://{region}-aiplatform.googleapis.com/v1
         /projects/{project}/locations/{region}
@@ -1063,8 +1063,8 @@ still want their historical spend and audit trail preserved for
 compliance and finance. Indexed `(tenant_id, ts)` and `(team_id, ts)`
 for the two hottest query shapes.
 
-14 Alembic migrations apply cleanly from an empty DB (`0001` initial
-auth schema → `0014` agent-turn budget columns).
+25 Alembic migrations apply cleanly from an empty DB (`0001` initial
+auth schema → `0025` batch jobs + `team.batches_enabled`).
 
 ## Deployment shape
 
@@ -1172,8 +1172,7 @@ lenient + exit 1 strict; gate count stable at 14 across both.
 
 Items listed elsewhere as `🔜 roadmap` and the reason they're deferred:
 
-- **Admin UI (Next.js)** — the CLI + admin API cover the operational
-  surface; a UI is a polish step.
+- **Admin UI (Next.js)** — shipped in Phases 62–71 (Claims 49–58); 17 pages across identity, FinOps, playground, routing, guardrails, reliability, batches, webhooks, and settings.
 - **SCIM provisioning** — Phase 26 ships JWT-based OIDC admin auth
   (any standards-compliant IdP). Auto-provisioning users +
   groups via SCIM is the next layer for large-IT-team workflows;
@@ -1197,6 +1196,4 @@ Items listed elsewhere as `🔜 roadmap` and the reason they're deferred:
   scores into the router via a CLI bridge. An opt-in scheduler that
   re-runs the eval on a cadence (cron-style) and refreshes
   `team.quality_scores` automatically is a polish step.
-- **Bedrock + Vertex native adapters** — every OpenAI-compat
-  provider works via one adapter; native AWS Bedrock and Google
-  Vertex shapes are separate adapters not yet built.
+- **Bedrock + Vertex native adapters** — shipped in Phases 42/52 (AWS Bedrock, Claim 29/39) and Phase 53 (Google Vertex AI, Claim 40).

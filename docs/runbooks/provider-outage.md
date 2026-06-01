@@ -11,14 +11,14 @@ Alerts that fire:
 - `pronaos_provider_latency_p99_seconds > 15` for 120 seconds
 - `circuit.tripped` webhook fires to the tenant's configured receiver
   the moment the breaker transitions CLOSED → OPEN
-- Grafana dashboard `Pronaos / Providers` goes red
+- **Pronaos — Overview** Grafana dashboard shows elevated error rate + circuit-trips counter
 
 ## 2. Triage (2 minutes)
 
-1. Open the `Pronaos / Providers` dashboard.
+1. Open the **Pronaos — Overview** dashboard.
 2. Identify affected provider(s) and scope: regional, global, specific model.
 3. Check the provider's status page (link in dashboard footer).
-4. Check our circuit breaker state: `pronaos_circuit_open{provider="..."}` should already be `1` if automation is working.
+4. Check our circuit breaker state: `pronaos_circuit_state{provider="..."} == 2` means the breaker is OPEN (automation has fired).
 
 ## 3. Confirm failover + circuit breaker
 
@@ -63,8 +63,8 @@ pronaos-cli team set-routing-strategy <team-id> --strategy fastest
 ## 5. Recovery
 
 When the provider recovers:
-1. Circuit breaker moves to half-open automatically after 30 s.
-2. Traffic restoration is gradual (exponential ramp) — do not force immediate full restore.
+1. Circuit breaker moves to HALF_OPEN automatically after ~30 s.
+2. One probe request is sent through; on success the breaker transitions to CLOSED and full traffic restores immediately. On failure it returns to OPEN. There is no gradual ramp — recovery is single-probe then binary.
 3. Watch error rate for 5 minutes before declaring resolved.
 
 ## 6. Post-incident
