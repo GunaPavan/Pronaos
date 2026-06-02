@@ -64,6 +64,11 @@ class ProviderCatalogEntry:
     # Per-model capability matrix. Keyed by the same model name used in
     # ``pricing``. Models not listed get the ModelCapabilities default.
     capabilities: dict[str, ModelCapabilities] = field(default_factory=dict)
+    # Official model/pricing reference URL for this provider.
+    # When adding a new model: visit this URL, copy the exact model ID
+    # from the provider's docs, then add it to ``pricing`` + ``capabilities``
+    # above. Do NOT infer model codes — use only what the docs show.
+    docs_url: str = ""
     # Best-effort p50 latency for the provider's typical model family.
     # Used by latency-aware routing strategies. None = unknown; the
     # scorer treats unknown as the highest-latency tier.
@@ -145,6 +150,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         },
         typical_p50_ms=250,  # Groq is the fast-tier reference.
         notes="Free tier; fast inference; open-weight models.",
+        docs_url="https://console.groq.com/docs/models",
     ),
     "together": ProviderCatalogEntry(
         key="together",
@@ -163,6 +169,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=900,
+        docs_url="https://docs.together.ai/docs/inference-models",
     ),
     "fireworks": ProviderCatalogEntry(
         key="fireworks",
@@ -177,6 +184,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=700,
+        docs_url="https://fireworks.ai/models",
     ),
     "cerebras": ProviderCatalogEntry(
         key="cerebras",
@@ -192,6 +200,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         },
         typical_p50_ms=200,  # Cerebras is even faster than Groq on big models.
         notes="World's fastest inference on frontier open models.",
+        docs_url="https://inference-docs.cerebras.ai/supported-models",
     ),
     "openrouter": ProviderCatalogEntry(
         key="openrouter",
@@ -203,6 +212,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         },
         typical_p50_ms=1200,  # OR adds a hop; varies with underlying model.
         notes="Unified access to hundreds of models; OR sets its own pricing.",
+        docs_url="https://openrouter.ai/models",
     ),
     # ------------------------ Frontier providers ----------------------------
     "openai": ProviderCatalogEntry(
@@ -228,6 +238,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=800,
+        docs_url="https://platform.openai.com/docs/models",
         # Phase 31: embedding models on the same key+endpoint.
         # Pricing: hcents per million input tokens.
         # text-embedding-3-small: $0.02/Mtok → 2000 hcents
@@ -259,6 +270,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=1100,
+        docs_url="https://api-docs.deepseek.com/quick_start/pricing",
     ),
     "mistral": ProviderCatalogEntry(
         key="mistral",
@@ -277,6 +289,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=900,
+        docs_url="https://docs.mistral.ai/getting-started/models/models_overview/",
         # Mistral's embedding endpoint speaks OpenAI shape. ``mistral-embed``
         # is $0.10/Mtok = 10_000 hcents.
         embedding_pricing={
@@ -297,6 +310,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             "sonar-pro": _STREAMING_ONLY,
         },
         typical_p50_ms=2000,  # Sonar does live web search; inherently slower.
+        docs_url="https://docs.perplexity.ai/models/model-cards",
     ),
     "xai": ProviderCatalogEntry(
         key="xai",
@@ -314,6 +328,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             ),
         },
         typical_p50_ms=1000,
+        docs_url="https://docs.x.ai/docs/models",
     ),
     # ------------------------ Embedding-only providers ----------------------
     # These are chat-less catalog entries — pricing/capabilities are empty,
@@ -342,6 +357,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         rerank_shape="cohere",
         typical_p50_ms=300,
         notes="Embedding + rerank provider. /v2/embed and /v2/rerank shapes.",
+        docs_url="https://docs.cohere.com/docs/models",
     ),
     "voyage": ProviderCatalogEntry(
         key="voyage",
@@ -368,6 +384,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         rerank_shape="voyage",
         typical_p50_ms=400,
         notes="Embedding + rerank provider. Frontier-quality retrieval models.",
+        docs_url="https://docs.voyageai.com/docs/embeddings",
     ),
     # ------------------------ AWS Bedrock (native, SigV4-signed) ------------
     # Phase 42 — Bedrock-hosted models behind one provider key. Unlike the
@@ -458,6 +475,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             "AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (or IRSA in-cluster). "
             "Per-region; set AWS_REGION (default us-east-1)."
         ),
+        docs_url="https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html",
     ),
     # ------------------------ Google Cloud Vertex AI ------------------------
     # Vertex hosts foundation models across multiple publishers. The
@@ -535,6 +553,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
             "JSON file). Per-region; set VERTEX_REGION (default "
             "us-central1)."
         ),
+        docs_url="https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models",
     ),
     # ------------------------ Local / self-hosted ---------------------------
     "ollama": ProviderCatalogEntry(
@@ -546,6 +565,7 @@ CATALOG: dict[str, ProviderCatalogEntry] = {
         # capabilities (no tools, streaming, 8K) is the safe assumption.
         typical_p50_ms=400,  # depends entirely on local hardware.
         notes="Run open models locally. No API key; enable with OLLAMA_ENABLED=true.",
+        docs_url="https://ollama.com/library",
     ),
 }
 

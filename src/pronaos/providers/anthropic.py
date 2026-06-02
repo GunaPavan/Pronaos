@@ -51,6 +51,11 @@ class _Price:
     output_hcents_per_mtok: int
 
 
+# Model IDs and pricing for the Anthropic native adapter.
+# Reference: https://docs.anthropic.com/en/docs/models-overview
+# When adding a new Claude model: visit the URL above, copy the exact
+# model ID string from Anthropic's docs, and add a _Price entry below.
+# Do NOT guess model IDs — use only what the official docs show.
 _PRICING: Final[dict[str, _Price]] = {
     "claude-opus-4-7": _Price(input_hcents_per_mtok=1_500_000, output_hcents_per_mtok=7_500_000),
     "claude-sonnet-4-6": _Price(input_hcents_per_mtok=300_000, output_hcents_per_mtok=1_500_000),
